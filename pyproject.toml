@@ -1,0 +1,20 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anu-ctlab-io"
+version = "0.0.1"
+description = "python I/O for the ANU CTLab array storage format(s)"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "pre-commit>=4.1.0",
+    "xarray>=2025.1.2",
+]
+
+[dependancy-groups]
+dev = [
+    "pre-commit>=4.1.0",
+    "ruff>=0.9.5",
+]
