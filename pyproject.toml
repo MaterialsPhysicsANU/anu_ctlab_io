@@ -7,9 +7,12 @@ name = "anu-ctlab-io"
 version = "0.0.1"
 description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.md"
-requires-python = ">=3.12"
+requires-python = ">=3.13"
 dependencies = [
+    "dask[array]>=2025.2.0",
+    "h5netcdf>=1.6.1",
     "xarray>=2025.1.2",
+    "numpy>=2.2.3",
 ]
 
 [dependency-groups]
@@ -17,7 +20,5 @@ dev = [
     "pre-commit>=4.1.0",
     "ruff>=0.9.5",
     "pytest>=8.3.5",
-    "dask>=2025.2.0",
     "netcdf4>=1.7.2",
-    "numpy>=2.2.3",
 ]

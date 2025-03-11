@@ -61,6 +61,7 @@ def test_manual_read_netcdf_multi():
     # See generate_test_data_zarr.py
     #   Each chunk of z shape 30 is just filled with a constant value of the chunk index
     #   The chunk z shape is independent of the netcdf block z shape.
+    print(array.to_numpy()[range(0,100,5), 0, 0])
     shape_z = array.shape[0]
     chunk_z = 30
     num_chunks_z = (shape_z + chunk_z - 1) // chunk_z
