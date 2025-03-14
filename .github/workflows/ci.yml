@@ -24,3 +24,5 @@ jobs:
       - name: run pre-commit checks
         run: |
           uv run pre-commit run --all-files --show-diff-on-failure
+      - name: run tests
+        run: uv run pytest
