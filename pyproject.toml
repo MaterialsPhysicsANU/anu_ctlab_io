@@ -9,11 +9,10 @@ description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "pre-commit>=4.1.0",
     "xarray>=2025.1.2",
 ]
 
-[dependancy-groups]
+[dependency-groups]
 dev = [
     "pre-commit>=4.1.0",
     "ruff>=0.9.5",
