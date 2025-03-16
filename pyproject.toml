@@ -22,3 +22,11 @@ dev = [
     "pytest>=8.3.5",
     "netcdf4>=1.7.2",
 ]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    # known behaviour, caused by numpy changes which are ABI compatible with older versions,
+    # but which cython flags as a warning despite everything being fine
+    # See https://github.com/cython/cython/issues/2498, https://github.com/cython/cython/issues/4366
+    'ignore:numpy.ndarray size changed, may indicate binary incompatibility.'
+]
