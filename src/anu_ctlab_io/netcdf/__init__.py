@@ -14,13 +14,14 @@ type VoxelSize = tuple[np.float32, np.float32, np.float32]
 class VoxelUnit(Enum):
     """
     The unit of size of a voxel. NOTE: Consider parameterizing this?
+    TODO: double check mango supported units
     """
 
     meter = auto()
     millimeter = auto()
     micrometer = auto()
     nanometer = auto()
-    unspecified = auto()
+    voxels = auto()
 
     @classmethod
     def from_str(cls, string: str):
@@ -37,7 +38,7 @@ class VoxelUnit(Enum):
             "nanometer": cls.nanometer,
             # alternative symbols
             "µm": cls.micrometer,
-        }.get(string, cls.unspecified)
+        }.get(string, cls.voxels)
 
 
 type storage_dtypes = (
@@ -96,7 +97,7 @@ class DataType(Enum):
         return DATATYPE_PROPERTIES[str(self)].dtype
 
     @property
-    def dtype_uncorrected(self) -> type:
+    def _dtype_uncorrected(self) -> type:
         return DATATYPE_PROPERTIES[str(self)].dtype_uncorrected
 
     def _mask_value(self, uncorrected: bool = False) -> storage_dtypes | None:
@@ -115,7 +116,7 @@ class DataType(Enum):
         return self._mask_value()
 
     @property
-    def mask_value_uncorrected(self):
+    def _mask_value_uncorrected(self):
         return self._mask_value(True)
 
     @classmethod
@@ -137,7 +138,7 @@ class DataType(Enum):
     def from_dataset(cls, dataset: xr.Dataset) -> Self: ...
 
 
-def generate_attr_transform(dataset: xr.Dataset) -> dict[str, str]:
+def _generate_attr_transform(dataset: xr.Dataset) -> dict[str, str]:
     attr_transform = {}
     for k in dataset.attrs.keys():
         match k:
@@ -148,7 +149,7 @@ def generate_attr_transform(dataset: xr.Dataset) -> dict[str, str]:
     return attr_transform
 
 
-def generate_data_var_transform(
+def _generate_data_var_transform(
     dataset: xr.Dataset, datatype: DataType
 ) -> dict[str, str]:
     attr_transform = {f"{datatype}_{dim}dim": dim for dim in ["x", "y", "z"]}
@@ -159,13 +160,13 @@ def generate_data_var_transform(
     return attr_transform
 
 
-def dict_rename_keys(d: dict, changed_keys: dict):
+def _dict_rename_keys(d: dict, changed_keys: dict):
     for k, v in changed_keys.items():
         d[v] = d.pop(k)
     return d
 
 
-def invert_dict_kvs(d: dict) -> dict:
+def _invert_dict_kvs(d: dict) -> dict:
     return {v: k for k, v in d.items()}
 
 
@@ -188,12 +189,12 @@ class CTLabDataset:
         return self._dataset.__repr__()
 
     def _transform_from_anunetcdf_format(self):
-        self._applied_data_transform = generate_data_var_transform(
+        self._applied_data_transform = _generate_data_var_transform(
             self._dataset, self._dataType
         )
         self._dataset = self._dataset.rename(self._applied_data_transform)
-        self._applied_attr_transform = generate_attr_transform(self._dataset)
-        self._dataset.attrs = dict_rename_keys(
+        self._applied_attr_transform = _generate_attr_transform(self._dataset)
+        self._dataset.attrs = _dict_rename_keys(
             self._dataset.attrs, self._applied_attr_transform
         )
         self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
@@ -201,10 +202,10 @@ class CTLabDataset:
     def _restore_to_anunetcdf_format(self) -> xr.Dataset:
         """Note this returns a new dataset rather than mutating the CTLabDataset instance."""
         restored_dataset = self._dataset.rename(
-            invert_dict_kvs(self._applied_data_transform)
+            _invert_dict_kvs(self._applied_data_transform)
         )
-        restored_dataset.attrs = dict_rename_keys(
-            restored_dataset.attrs, invert_dict_kvs(self._applied_attr_transform)
+        restored_dataset.attrs = _dict_rename_keys(
+            restored_dataset.attrs, _invert_dict_kvs(self._applied_attr_transform)
         )
         restored_dataset[str(self._dataType)] = restored_dataset[
             str(self._dataType)
