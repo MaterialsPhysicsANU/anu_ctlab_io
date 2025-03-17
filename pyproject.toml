@@ -30,3 +30,15 @@ filterwarnings = [
     # See https://github.com/cython/cython/issues/2498, https://github.com/cython/cython/issues/4366
     'ignore:numpy.ndarray size changed, may indicate binary incompatibility.'
 ]
+addopts = [
+    "--import-mode=importlib" # recommended by pytest
+]
+
+[tool.tox]
+envlist = ["py313"]
+
+[tool.tox.env.py313]
+deps = ["pytest"]
+commands = [
+    ["pytest"],
+]
