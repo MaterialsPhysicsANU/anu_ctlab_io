@@ -4,7 +4,10 @@ from typing import Self
 import os
 import re
 
+from anu_ctlab_io.netcdf.parse_history import parse_history
+from anu_ctlab_io.netcdf.dict_transformer import DictTransformer
 import xarray as xr
+import hidefix
 import numpy as np
 
 
@@ -138,12 +141,12 @@ class DataType(Enum):
     def from_dataset(cls, dataset: xr.Dataset) -> Self: ...
 
 
-def _generate_attr_transform(dataset: xr.Dataset) -> dict[str, str]:
+def _generate_attr_transform(attrs: xr.Dataset.attrs) -> dict[str, str]:
     attr_transform = {}
-    for k in dataset.attrs.keys():
+    for k in attrs.keys():
         match k:
             case a if a.find("history") == 0:
-                attr_transform[k] = "history"
+                attr_transform[k] = ["history", a[len("history") + 1 :]]
             case a if a.find("dim") != -1:
                 attr_transform[k] = re.sub("([x|y|z])dim", "\\1", k)
     return attr_transform
@@ -175,28 +178,43 @@ class CTLabDataset:
     # _voxel_size: VoxelSize
     _dataType: DataType
     _dataset: xr.Dataset
+    _attr_transformer: DictTransformer
     _applied_data_transform: dict[str, str]
-    _applied_attr_transform: dict[str, str]
 
     def __init__(self, dataset: xr.Dataset, dataType: DataType | None = None) -> None:
         self._dataset = dataset
         self._dataType = dataType if dataType else DataType.from_dataset(dataset)
+        self._attr_transformer = DictTransformer(self._dataset.attrs)
         self._transform_from_anunetcdf_format()
 
     def __repr__(
         self,
     ):  # TODO: this is useful but a misleading representation of the class, fix
-        return self._dataset.__repr__()
+        return "<CTLabDataset>" + self._dataset.__repr__()
 
     def _transform_from_anunetcdf_format(self):
+        # strip blocking attributes
+        self._attr_transformer.remove(
+            ["number_of_files", "zdim_total", "total_grid_size_xyz"]
+        )
+
+        attr_rekey = _generate_attr_transform(self._dataset.attrs)
+        self._attr_transformer.rekey(attr_rekey)
+        # TODO: Fix and enable unpacking of history into a dict
+        # self._attr_transformer.update(
+        #     {
+        #         "history": {
+        #             k: parse_history(v)
+        #             for k, v in self._dataset.attrs["history"].items()
+        #         }
+        #     }
+        # )
+
         self._applied_data_transform = _generate_data_var_transform(
             self._dataset, self._dataType
         )
+
         self._dataset = self._dataset.rename(self._applied_data_transform)
-        self._applied_attr_transform = _generate_attr_transform(self._dataset)
-        self._dataset.attrs = _dict_rename_keys(
-            self._dataset.attrs, self._applied_attr_transform
-        )
         self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
 
     def _restore_to_anunetcdf_format(self) -> xr.Dataset:
@@ -204,12 +222,13 @@ class CTLabDataset:
         restored_dataset = self._dataset.rename(
             _invert_dict_kvs(self._applied_data_transform)
         )
-        restored_dataset.attrs = _dict_rename_keys(
-            restored_dataset.attrs, _invert_dict_kvs(self._applied_attr_transform)
+        restored_dataset_attr_transformer = DictTransformer.from_existing_transformer(
+            restored_dataset.attrs, self._attr_transformer
         )
+        restored_dataset_attr_transformer.undo_all()
         restored_dataset[str(self._dataType)] = restored_dataset[
             str(self._dataType)
-        ].astype(self._dataType.dtype_uncorrected)
+        ].astype(self._dataType._dtype_uncorrected)
 
         return restored_dataset
 
@@ -227,9 +246,11 @@ class CTLabDataset:
                 combine_attrs="drop_conflicts",
                 coords="minimal",
                 compat="override",
+                mask_and_scale=False,
+                engine="hidefix",
             )
         else:
-            dataset = xr.open_dataset(path)
+            dataset = xr.open_dataset(path, mask_and_scale=False, engine="hidefix")
         return cls(dataset, dataType)
 
     @classmethod
@@ -262,7 +283,8 @@ class CTLabDataset:
     def mask_value(self) -> storage_dtypes | None:
         return self._dataType.mask_value
 
-    def as_xarray_dataarray(self) -> xr.DataArray: ...
+    def as_xarray_dataarray(self) -> xr.DataArray:
+        return self._dataset.data
 
     def as_xarray_dataset(self) -> xr.Dataset:
         return self._dataset

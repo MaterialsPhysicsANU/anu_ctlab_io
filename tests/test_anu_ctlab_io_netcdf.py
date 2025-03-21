@@ -17,6 +17,8 @@ def test_read_netcdf_single():
     assert array.shape[2] == 30
 
     assert (array[:] == np.arange(np.prod(array.shape)).reshape(array.shape)).all()
+    assert "history" in dataset.attrs and isinstance(dataset.attrs["history"], dict)
+    print(dataset.attrs["history"])
 
 
 def test_read_netcdf_multi():
