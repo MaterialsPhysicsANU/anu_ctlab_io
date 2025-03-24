@@ -41,3 +41,6 @@ repos:
           - numpy
           - xarray
           - matplotlib
+          - lark
+          - dictdiffer
+          - hidefix

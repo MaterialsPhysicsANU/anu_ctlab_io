@@ -5,9 +5,9 @@ import os
 import re
 
 from anu_ctlab_io.netcdf.parse_history import parse_history
-from anu_ctlab_io.netcdf.dict_transformer import DictTransformer
 import xarray as xr
-import hidefix
+import dictdiffer
+import hidefix  # noqa: F401
 import numpy as np
 
 
@@ -137,24 +137,26 @@ class DataType(Enum):
         except KeyError as e:
             raise RuntimeError(f"Basename {basename} not recognized.", e)
 
-    @classmethod
-    def from_dataset(cls, dataset: xr.Dataset) -> Self: ...
+    # @classmethod
+    # def from_dataset(cls, dataset: xr.Dataset) -> Self: ...
 
 
-def _generate_attr_transform(attrs: xr.Dataset.attrs) -> dict[str, str]:
-    attr_transform = {}
-    for k in attrs.keys():
+def update_attrs(attrs: dict) -> dict:
+    new_attrs: dict = {"history": {}}
+    for k, v in attrs.items():
         match k:
             case a if a.find("history") == 0:
-                attr_transform[k] = ["history", a[len("history") + 1 :]]
+                new_attrs["history"][k[len("history") + 1 :]] = parse_history(v)
             case a if a.find("dim") != -1:
-                attr_transform[k] = re.sub("([x|y|z])dim", "\\1", k)
-    return attr_transform
+                new_attrs[re.sub("([x|y|z])dim", "\\1", k)] = v
+            case a if a in ["number_of_files", "zdim_total", "total_grid_size_xyz"]:
+                pass
+            case _:
+                new_attrs[k] = attrs[k]
+    return new_attrs
 
 
-def _generate_data_var_transform(
-    dataset: xr.Dataset, datatype: DataType
-) -> dict[str, str]:
+def transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, str]:
     attr_transform = {f"{datatype}_{dim}dim": dim for dim in ["x", "y", "z"]}
     for k in dataset.data_vars.keys():
         match k:
@@ -163,28 +165,17 @@ def _generate_data_var_transform(
     return attr_transform
 
 
-def _dict_rename_keys(d: dict, changed_keys: dict):
-    for k, v in changed_keys.items():
-        d[v] = d.pop(k)
-    return d
-
-
-def _invert_dict_kvs(d: dict) -> dict:
-    return {v: k for k, v in d.items()}
-
-
 class CTLabDataset:
     # _voxel_unit: VoxelUnit
     # _voxel_size: VoxelSize
     _dataType: DataType
     _dataset: xr.Dataset
-    _attr_transformer: DictTransformer
-    _applied_data_transform: dict[str, str]
+    _attr_diff: dict
+    _data_var_tx: dict[str, str]
 
-    def __init__(self, dataset: xr.Dataset, dataType: DataType | None = None) -> None:
+    def __init__(self, dataset: xr.Dataset, dataType: DataType) -> None:
         self._dataset = dataset
-        self._dataType = dataType if dataType else DataType.from_dataset(dataset)
-        self._attr_transformer = DictTransformer(self._dataset.attrs)
+        self._dataType = dataType
         self._transform_from_anunetcdf_format()
 
     def __repr__(
@@ -193,39 +184,22 @@ class CTLabDataset:
         return "<CTLabDataset>" + self._dataset.__repr__()
 
     def _transform_from_anunetcdf_format(self):
-        # strip blocking attributes
-        self._attr_transformer.remove(
-            ["number_of_files", "zdim_total", "total_grid_size_xyz"]
-        )
+        new_attrs = update_attrs(self._dataset.attrs)
+        self._attr_diff = dictdiffer.diff(self._dataset.attrs, new_attrs)
+        self._dataset.attrs.update(new_attrs)
 
-        attr_rekey = _generate_attr_transform(self._dataset.attrs)
-        self._attr_transformer.rekey(attr_rekey)
-        # TODO: Fix and enable unpacking of history into a dict
-        # self._attr_transformer.update(
-        #     {
-        #         "history": {
-        #             k: parse_history(v)
-        #             for k, v in self._dataset.attrs["history"].items()
-        #         }
-        #     }
-        # )
-
-        self._applied_data_transform = _generate_data_var_transform(
-            self._dataset, self._dataType
-        )
-
-        self._dataset = self._dataset.rename(self._applied_data_transform)
+        self._data_var_tx = transform_data_vars(self._dataset, self._dataType)
+        self._dataset = self._dataset.rename(self._data_var_tx)
         self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
 
     def _restore_to_anunetcdf_format(self) -> xr.Dataset:
         """Note this returns a new dataset rather than mutating the CTLabDataset instance."""
         restored_dataset = self._dataset.rename(
-            _invert_dict_kvs(self._applied_data_transform)
+            {v: k for k, v in self._data_var_tx.items()}
         )
-        restored_dataset_attr_transformer = DictTransformer.from_existing_transformer(
-            restored_dataset.attrs, self._attr_transformer
+        restored_dataset.attrs.update(
+            dictdiffer.revert(restored_dataset.attrs, self._attr_diff)
         )
-        restored_dataset_attr_transformer.undo_all()
         restored_dataset[str(self._dataType)] = restored_dataset[
             str(self._dataType)
         ].astype(self._dataType._dtype_uncorrected)
@@ -254,30 +228,31 @@ class CTLabDataset:
         return cls(dataset, dataType)
 
     @classmethod
+    # TODO: properly infer datatype!
     def from_xarray_dataset(cls, dataset: xr.Dataset) -> Self:
-        return cls(dataset)
+        return cls(dataset, DataType[dataset.attrs["DataType"]])
 
-    @classmethod
-    def from_array(
-        cls,
-        array: xr.DataArray | np.ndarray,
-        data_type: DataType,
-        voxel_size: VoxelSize,
-        voxel_unit: VoxelUnit,
-        history: dict[str, str],
-    ) -> Self: ...
+    # @classmethod
+    # def from_array(
+    #     cls,
+    #     array: xr.DataArray | np.ndarray,
+    #     data_type: DataType,
+    #     voxel_size: VoxelSize,
+    #     voxel_unit: VoxelUnit,
+    #     history: dict[str, str],
+    # ) -> Self: ...
 
     @property
     def voxel_size(self) -> VoxelSize:
-        return self._voxel_size
+        return self._dataset.attrs["voxel_size"]
 
     @property
     def voxel_unit(self) -> VoxelUnit:
-        return self._voxel_unit
+        return self._dataset.attrs["voxel_unit"]
 
     @property
-    def history(self) -> dict[str, str] | None:
-        return self._history
+    def history(self) -> dict[str, str | dict] | None:
+        return self._dataset.attrs["history"]
 
     @property
     def mask_value(self) -> storage_dtypes | None:
@@ -292,6 +267,6 @@ class CTLabDataset:
     # def as_xarray_datatree(self) -> xr.DataTree:
     #    ...
 
-    def as_numpy_array(self) -> np.ndarray: ...
+    # def as_numpy_array(self) -> np.ndarray: ...
 
-    def save(self, path: os.PathLike, options) -> None: ...
+    # def save(self, path: os.PathLike, options) -> None: ...

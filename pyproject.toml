@@ -14,8 +14,8 @@ dependencies = [
     "xarray>=2025.1.2",
     "numpy>=2.2.3",
     "hidefix>=0.12.0",
-    "python-benedict>=0.34.1",
     "lark>=1.2.2",
+    "dictdiffer>=0.9.0",
 ]
 
 [dependency-groups]
@@ -45,3 +45,7 @@ deps = ["pytest"]
 commands = [
     ["pytest"],
 ]
+
+[[tool.mypy.overrides]]
+module = ["hidefix.*", "dictdiffer.*"]
+follow_untyped_imports = true
