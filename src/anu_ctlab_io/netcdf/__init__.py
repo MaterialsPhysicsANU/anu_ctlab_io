@@ -35,7 +35,7 @@ def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, s
     return attr_transform
 
 
-class CTLabDataset:
+class NetCDFDataset:
     # _voxel_unit: VoxelUnit
     # _voxel_size: VoxelSize
     _dataType: DataType

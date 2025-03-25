@@ -4,7 +4,7 @@ import anu_ctlab_io.netcdf as nc
 
 
 def test_read_netcdf_single():
-    ctlab_dataset = nc.CTLabDataset.from_netcdf("tests/data/tomoLoRes_SS.nc")
+    ctlab_dataset = nc.NetCDFDataset.from_path("tests/data/tomoLoRes_SS.nc")
     dataset = ctlab_dataset._dataset
 
     # check the type is right
@@ -22,7 +22,7 @@ def test_read_netcdf_single():
 
 
 def test_read_netcdf_multi():
-    ctlab_dataset = nc.CTLabDataset.from_netcdf(
+    ctlab_dataset = nc.NetCDFDataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
     dataset = ctlab_dataset._dataset

@@ -5,7 +5,7 @@ import anu_ctlab_io.netcdf as nc
 
 
 def test_parse_history():
-    ctlab_dataset = nc.CTLabDataset.from_netcdf(
+    ctlab_dataset = nc.NetCDFDataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
     dataset = ctlab_dataset._dataset
