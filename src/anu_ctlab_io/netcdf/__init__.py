@@ -8,9 +8,10 @@ import xarray as xr
 import dictdiffer
 
 
+__all__ = ["Dataset"]
 
 
-def update_attrs(attrs: dict) -> dict:
+def _update_attrs(attrs: dict) -> dict:
     new_attrs: dict = {"history": {}}
     for k, v in attrs.items():
         match k:
@@ -25,7 +26,7 @@ def update_attrs(attrs: dict) -> dict:
     return new_attrs
 
 
-def transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, str]:
+def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, str]:
     attr_transform = {f"{datatype}_{dim}dim": dim for dim in ["x", "y", "z"]}
     for k in dataset.data_vars.keys():
         match k:
@@ -53,11 +54,11 @@ class CTLabDataset:
         return "<CTLabDataset>" + self._dataset.__repr__()
 
     def _transform_from_anunetcdf_format(self):
-        new_attrs = update_attrs(self._dataset.attrs)
+        new_attrs = _update_attrs(self._dataset.attrs)
         self._attr_diff = dictdiffer.diff(self._dataset.attrs, new_attrs)
         self._dataset.attrs.update(new_attrs)
 
-        self._data_var_tx = transform_data_vars(self._dataset, self._dataType)
+        self._data_var_tx = _transform_data_vars(self._dataset, self._dataType)
         self._dataset = self._dataset.rename(self._data_var_tx)
         self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
 
@@ -120,8 +121,8 @@ class CTLabDataset:
         return self._dataset.attrs["voxel_unit"]
 
     @property
-    def history(self) -> dict[str, str | dict] | None:
-        return self._dataset.attrs["history"]
+    def history(self) -> dict:
+        return self._dataset.attrs.get("history", {})
 
     @property
     def mask_value(self) -> storage_dtypes | None:
