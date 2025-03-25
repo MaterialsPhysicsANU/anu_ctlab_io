@@ -8,7 +8,7 @@ import xarray as xr
 import dictdiffer
 
 
-__all__ = ["Dataset"]
+__all__ = ["NetCDFDataset"]
 
 
 def _update_attrs(attrs: dict) -> dict:
