@@ -24,5 +24,8 @@ jobs:
       - name: run pre-commit checks
         run: |
           uv run pre-commit run --all-files --show-diff-on-failure
+      - name: install tox
+        run: |
+          uv tool install tox --with tox-uv
       - name: run tests
-        run: uv run pytest
+        run: uv run tox

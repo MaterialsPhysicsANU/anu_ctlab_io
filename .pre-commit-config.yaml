@@ -39,7 +39,8 @@ repos:
         additional_dependencies:
           - pandas-stubs
           - numpy
+          - xarray
           - matplotlib
-          - types-requests
-          - python-dotenv
-          - xlsxwriter
+          - lark
+          - dictdiffer
+          - hidefix
