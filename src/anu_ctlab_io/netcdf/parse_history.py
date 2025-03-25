@@ -12,7 +12,7 @@ _history_parser = Lark(
     ?kv_pair: KEY _WS [VALUE]
 
     KEY : /(?!EndSection)\w+/
-    VALUE : /\S+/
+    VALUE : /[^\n]+/
 
     COL_KEY : /(\w+\s*)+:/
     COL_VALUE : "<" KEY ">"
