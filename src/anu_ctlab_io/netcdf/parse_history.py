@@ -9,10 +9,13 @@ _history_parser = Lark(
     ?section: section_header _NEWLINE section_contents _section_footer
     ?section_header: "BeginSection" _WS VALUE
     _section_footer: "EndSection"
-    ?kv_pair: KEY _WS [VALUE]
+    # ?kv_pair: KEY _WS [VALUE]
+    ?kv_pair: KEY _WS [(_multi_line_string | VALUE)]
+    _multi_line_string: "__start_multi_string__" _NEWLINE* MULTI_LINE_STRING "__end_multi_string__"
 
     KEY : /(?!EndSection)\w+/
-    VALUE : /[^\n]+/
+    VALUE : /(?!__start_multi_string__)[^\n]+/
+    MULTI_LINE_STRING : /((?!__end_multi_string__)(\n|.))+/
 
     COL_KEY : /(\w+\s*)+:/
     COL_VALUE : "<" KEY ">"
@@ -21,7 +24,7 @@ _history_parser = Lark(
     _NEWLINE : [_WS] /\n/ [_WS]
 """,
     start="history",
-    parser="lalr",
+    parser="earley",
 )
 
 
@@ -44,9 +47,12 @@ class _HistoryTransformer(Transformer):
 
 def parse_history(history):
     if re.match(r"\n*([^\n\r])+:\s+([^\n]+)", history):
-        lines = history.strip().split("\n")
-        ks, vs = zip(*map(lambda x: x.split(":", 1), lines))
-        return dict(zip(map(lambda x: x.strip(), ks), map(lambda x: x.strip(), vs)))
+        try:
+            lines = history.strip().split("\n")
+            ks, vs = zip(*map(lambda x: x.split(":", 1), lines))
+            return dict(zip(map(lambda x: x.strip(), ks), map(lambda x: x.strip(), vs)))
+        except ValueError:
+            return history
     else:
         hist = _HistoryTransformer().transform(_history_parser.parse(history))
         return hist

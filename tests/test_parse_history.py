@@ -46,6 +46,10 @@ def test_parse_recursive():
             BeginSection netcdf
                 operator_name           Ben Young
                 internal_compression    on
+                multi_string            __start_multi_string__
+        a b c
+        d e f
+        __end_multi_string__
             EndSection
         EndSection
         """
@@ -54,6 +58,10 @@ def test_parse_recursive():
         "MPI": {"num_bytes_in_chunk": "10000000"},
         "Output_Data_File": {
             "compression": "NONE",
-            "netcdf": {"operator_name": "Ben Young", "internal_compression": "on"},
+            "netcdf": {
+                "operator_name": "Ben Young",
+                "internal_compression": "on",
+                "multi_string": "a b c\n        d e f\n        ",
+            },
         },
     }
