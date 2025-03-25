@@ -77,7 +77,7 @@ class CTLabDataset:
         return restored_dataset
 
     @classmethod
-    def from_netcdf(cls, path: os.PathLike):
+    def from_path(cls, path: os.PathLike, **kwargs):
         path = os.path.normpath(os.path.expanduser(path))
         dataType = DataType.infer_from_path(path)
         if os.path.isdir(path):
@@ -91,10 +91,10 @@ class CTLabDataset:
                 coords="minimal",
                 compat="override",
                 mask_and_scale=False,
-                engine="hidefix",
+                **kwargs,
             )
         else:
-            dataset = xr.open_dataset(path, mask_and_scale=False, engine="hidefix")
+            dataset = xr.open_dataset(path, mask_and_scale=False, **kwargs)
         return cls(dataset, dataType)
 
     @classmethod
