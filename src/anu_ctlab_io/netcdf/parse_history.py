@@ -45,7 +45,7 @@ class _HistoryTransformer(Transformer):
 def parse_history(history):
     if re.match(r"\n*([^\n\r])+:\s+([^\n]+)", history):
         lines = history.strip().split("\n")
-        ks, vs = zip(*map(lambda x: x.split(":"), lines))
+        ks, vs = zip(*map(lambda x: x.split(":", 1), lines))
         return dict(zip(map(lambda x: x.strip(), ks), map(lambda x: x.strip(), vs)))
     else:
         hist = _HistoryTransformer().transform(_history_parser.parse(history))
