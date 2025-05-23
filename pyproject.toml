@@ -7,7 +7,7 @@ name = "anu-ctlab-io"
 version = "0.0.1"
 description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.12"
 dependencies = [
     "dask[array]>=2025.2.0",
     "h5netcdf>=1.6.1",
@@ -38,9 +38,9 @@ addopts = [
 ]
 
 [tool.tox]
-envlist = ["py313"]
+env_list = ["3.12", "3.13"]
 
-[tool.tox.env.py313]
+[tool.tox.env_run_base]
 deps = ["pytest"]
 commands = [
     ["pytest"],
