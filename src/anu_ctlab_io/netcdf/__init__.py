@@ -81,7 +81,7 @@ class NetCDFDataset:
         return restored_dataset
 
     @classmethod
-    def from_path(cls, path: os.PathLike, **kwargs):
+    def from_path(cls, path: os.PathLike, parse_history=True, **kwargs):
         path = os.path.normpath(os.path.expanduser(path))
         dataType = DataType.infer_from_path(path)
         if os.path.isdir(path):
@@ -101,7 +101,7 @@ class NetCDFDataset:
             dataset = xr.open_dataset(
                 path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
             )
-        return cls(dataset, dataType, parse_history=[kwargs.get("parse_history", True)])
+        return cls(dataset, dataType, parse_history=parse_history)
 
     @classmethod
     # TODO: properly infer datatype!
