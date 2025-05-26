@@ -29,10 +29,10 @@ class NetCDFDataset:
     _data_var_tx: dict[str, str]
     _parse_history: bool
 
-    def __init__(self, dataset: xr.Dataset, dataType: DataType, *, preserve_history = True) -> None:
+    def __init__(self, dataset: xr.Dataset, dataType: DataType, *, parse_history = True) -> None:
         self._dataset = dataset
         self._dataType = dataType
-        self._parse_history = preserve_history
+        self._parse_history = parse_history
         self._transform_from_anunetcdf_format()
 
     def __repr__(
