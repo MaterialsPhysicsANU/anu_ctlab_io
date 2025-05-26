@@ -11,21 +11,6 @@ import dictdiffer
 __all__ = ["NetCDFDataset"]
 
 
-def _update_attrs(attrs: dict) -> dict:
-    new_attrs: dict = {"history": {}}
-    for k, v in attrs.items():
-        match k:
-            case a if a.find("history") == 0:
-                new_attrs["history"][k[len("history") + 1 :]] = parse_history(v)
-            case a if a.find("dim") != -1:
-                new_attrs[re.sub("([x|y|z])dim", "\\1", k)] = v
-            case a if a in ["number_of_files", "zdim_total", "total_grid_size_xyz"]:
-                pass
-            case _:
-                new_attrs[k] = attrs[k]
-    return new_attrs
-
-
 def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, str]:
     attr_transform = {f"{datatype}_{dim}dim": dim for dim in ["x", "y", "z"]}
     for k in dataset.data_vars.keys():
@@ -42,10 +27,12 @@ class NetCDFDataset:
     _dataset: xr.Dataset
     _attr_diff: dict
     _data_var_tx: dict[str, str]
+    _parse_history: bool
 
-    def __init__(self, dataset: xr.Dataset, dataType: DataType) -> None:
+    def __init__(self, dataset: xr.Dataset, dataType: DataType, *, preserve_history = True) -> None:
         self._dataset = dataset
         self._dataType = dataType
+        self._parse_history = preserve_history
         self._transform_from_anunetcdf_format()
 
     def __repr__(
@@ -61,6 +48,23 @@ class NetCDFDataset:
         self._data_var_tx = _transform_data_vars(self._dataset, self._dataType)
         self._dataset = self._dataset.rename(self._data_var_tx)
         self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
+
+    def _update_attrs(self, attrs: dict) -> dict:
+        new_attrs: dict = {"history": {}}
+        for k, v in attrs.items():
+            match k:
+                case a if a.find("history") == 0:
+                    if self._parse_history:
+                        new_attrs["history"][k[len("history") + 1 :]] = parse_history(v)
+                    else:
+                        new_attrs["history"][k[len("history") + 1 :]] = v
+                case a if a.find("dim") != -1:
+                    new_attrs[re.sub("([x|y|z])dim", "\\1", k)] = v
+                case a if a in ["number_of_files", "zdim_total", "total_grid_size_xyz"]:
+                    pass
+                case _:
+                    new_attrs[k] = attrs[k]
+        return new_attrs
 
     def _restore_to_anunetcdf_format(self) -> xr.Dataset:
         """Note this returns a new dataset rather than mutating the CTLabDataset instance."""
