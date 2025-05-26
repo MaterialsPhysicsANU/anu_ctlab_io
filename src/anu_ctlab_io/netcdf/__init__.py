@@ -101,7 +101,7 @@ class NetCDFDataset:
             dataset = xr.open_dataset(
                 path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
             )
-        return cls(dataset, dataType)
+        return cls(dataset, dataType, parse_history=[kwargs.get("parse_history", True)])
 
     @classmethod
     # TODO: properly infer datatype!
