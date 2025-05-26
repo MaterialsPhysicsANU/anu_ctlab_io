@@ -41,7 +41,7 @@ class NetCDFDataset:
         return "<CTLabDataset>" + self._dataset.__repr__()
 
     def _transform_from_anunetcdf_format(self):
-        new_attrs = _update_attrs(self._dataset.attrs)
+        new_attrs = self._update_attrs(self._dataset.attrs)
         self._attr_diff = dictdiffer.diff(self._dataset.attrs, new_attrs)
         self._dataset.attrs.update(new_attrs)
 
