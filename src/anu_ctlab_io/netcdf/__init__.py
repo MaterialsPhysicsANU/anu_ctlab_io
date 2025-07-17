@@ -95,7 +95,7 @@ class NetCDFDataset:
             )
         else:
             dataset = xr.open_dataset(
-                path, mask_and_scale=False, chunks=kwargs.get("chunks", -1), **kwargs
+                path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
             )
         return cls(dataset, dataType)
 
