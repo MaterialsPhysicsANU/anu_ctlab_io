@@ -29,7 +29,9 @@ class NetCDFDataset:
     _data_var_tx: dict[str, str]
     _parse_history: bool
 
-    def __init__(self, dataset: xr.Dataset, dataType: DataType, *, parse_history = True) -> None:
+    def __init__(
+        self, dataset: xr.Dataset, dataType: DataType, *, parse_history=True
+    ) -> None:
         self._dataset = dataset
         self._dataType = dataType
         self._parse_history = parse_history
