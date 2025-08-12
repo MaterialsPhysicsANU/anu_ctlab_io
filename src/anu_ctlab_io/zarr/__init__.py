@@ -12,20 +12,22 @@ from anu_ctlab_io.voxel_properties import VoxelUnit
 def dataset_from_zarr(path: Path, **kwargs) -> Dataset:
     datatype = DataType.infer_from_path(path)
     try:
-        ome = False
         data = da.from_zarr(path, **kwargs)
-    except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
-        ome = True
+        za = zarr.open_array(
+            path, zarr_format=3
+        )  # can't get a dask array directly from this
+        attrs: dict[str, Any] = dict(za.attrs)["mango"]  # type: ignore # -- because Zarr has iffy typehinting
+        dimension_names: tuple[str, ...] = za.metadata.dimension_names  # type: ignore # -- because Zarr has iffy typehinting
+        voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
+        voxel_size = attrs["voxel_size_xyz"]
 
-    if ome:
+    except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
         zg = zarr.open_group(path, zarr_format=3)
         multiscale = zg.metadata.attributes["ome"]["multiscales"][0]
         component_path = multiscale["datasets"][0]["path"]
         data = da.from_zarr(path, component=component_path, **kwargs)
         attrs: dict[str, Any] = dict(zg.attrs)["mango"]  # type: ignore # -- because Zarr has iffy typehinting
-        dimension_names: tuple[str, ...] = tuple(
-            [x["name"] for x in multiscale["axes"]]
-        )  # type: ignore # -- because Zarr has iffy typehinting
+        dimension_names = tuple([x["name"] for x in multiscale["axes"]])  # type: ignore # -- because Zarr has iffy typehinting
         voxel_unit_list: tuple[str, ...] = tuple(
             [x["unit"] for x in multiscale["axes"]]
         )  # type: ignore # -- because Zarr has iffy typehinting
@@ -36,13 +38,6 @@ def dataset_from_zarr(path: Path, **kwargs) -> Dataset:
         voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
 
         voxel_size = multiscale["datasets"][0]["coordinateTransformations"][0]["scale"]
-
-    else:
-        za = zarr.open_array(path, zarr_format=3)
-        attrs: dict[str, Any] = dict(za.attrs)["mango"]  # type: ignore # -- because Zarr has iffy typehinting
-        dimension_names: tuple[str, ...] = za.metadata.dimension_names  # type: ignore # -- because Zarr has iffy typehinting
-        voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
-        voxel_size = attrs["voxel_size_xyz"]
 
     return Dataset(
         data=data,
