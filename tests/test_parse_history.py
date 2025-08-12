@@ -1,16 +1,16 @@
 #!/usr/bin/env python
 from pprint import pp
 import re
-import anu_ctlab_io.netcdf as nc
-import anu_ctlab_io.netcdf.parse_history as parse_history
+
+from anu_ctlab_io.parse_history import parse_history
+import anu_ctlab_io
 
 
 def test_parse_history():
-    ctlab_dataset = nc.NetCDFDataset.from_path(
+    dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
-    dataset = ctlab_dataset._dataset
-    for k, v in dataset.attrs["history"].items():
+    for k, v in dataset.history.items():
         assert isinstance(v, dict), "history item is not a dictionary"
         assert re.match(r"(19|20)\d{6}_\d{6}(_\S+)*", k), (
             "history key appears not to be valid mango filename"

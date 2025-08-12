@@ -1,14 +1,34 @@
-from typing import Self
+import deprecation  # type: ignore
 import os
 import re
+from pathlib import Path
 
-from anu_ctlab_io.netcdf.parse_history import parse_history
-from anu_ctlab_io import VoxelUnit, VoxelSize, DataType, storage_dtypes
 import xarray as xr
-import dictdiffer
+
+from anu_ctlab_io.dataset import Dataset
+from anu_ctlab_io.datatype import DataType
+from anu_ctlab_io.parse_history import parse_history
+from anu_ctlab_io.version import version
+from anu_ctlab_io.voxel_properties import VoxelUnit
 
 
-__all__ = ["NetCDFDataset"]
+__all__ = ["NetCDFDataset", "dataset_from_netcdf"]
+
+
+def dataset_from_netcdf(path: Path, *, parse_history: bool, **kwargs):
+    datatype = DataType.infer_from_path(path)
+    dataset = read_netcdf(path, datatype, **kwargs)
+    dataset = dataset.rename(_transform_data_vars(dataset, datatype))
+    dataset["data"] = dataset.data.astype(datatype.dtype)
+    dataset.attrs = _update_attrs(dataset.attrs, parse_history)
+    return Dataset(
+        data=dataset.data,
+        dimension_names=dataset.dims,
+        datatype=datatype,
+        voxel_unit=VoxelUnit.from_str(dataset.attrs["voxel_unit"]),
+        voxel_size=dataset.attrs["voxel_size"],
+        history=dataset.history,
+    )
 
 
 def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, str]:
@@ -20,131 +40,55 @@ def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, s
     return attr_transform
 
 
-class NetCDFDataset:
-    # _voxel_unit: VoxelUnit
-    # _voxel_size: VoxelSize
-    _dataType: DataType
-    _dataset: xr.Dataset
-    _attr_diff: dict
-    _data_var_tx: dict[str, str]
-    _parse_history: bool
+def _update_attrs(attrs: dict, parse_history_p: bool) -> dict:
+    new_attrs: dict = {"history": {}}
+    for k, v in attrs.items():
+        match k:
+            case a if a.find("history") == 0:
+                if parse_history_p:
+                    new_attrs["history"][k[len("history") + 1 :]] = parse_history(v)
+                else:
+                    new_attrs["history"][k[len("history") + 1 :]] = v
+            case a if a.find("dim") != -1:
+                new_attrs[re.sub("([x|y|z])dim", "\\1", k)] = v
+            case a if a in ["number_of_files", "zdim_total", "total_grid_size_xyz"]:
+                pass
+            case a if a.find("_xyz"):
+                new_attrs[re.sub("(.*)_xyz", "\\1", k)] = v
+            case _:
+                new_attrs[k] = attrs[k]
+    return new_attrs
 
-    def __init__(
-        self, dataset: xr.Dataset, dataType: DataType, *, parse_history=True
-    ) -> None:
-        self._dataset = dataset
-        self._dataType = dataType
-        self._parse_history = parse_history
-        self._transform_from_anunetcdf_format()
 
-    def __repr__(
-        self,
-    ):  # TODO: this is useful but a misleading representation of the class, fix
-        return "<CTLabDataset>" + self._dataset.__repr__()
-
-    def _transform_from_anunetcdf_format(self):
-        new_attrs = self._update_attrs(self._dataset.attrs)
-        self._attr_diff = dictdiffer.diff(self._dataset.attrs, new_attrs)
-        self._dataset.attrs.update(new_attrs)
-
-        self._data_var_tx = _transform_data_vars(self._dataset, self._dataType)
-        self._dataset = self._dataset.rename(self._data_var_tx)
-        self._dataset["data"] = self._dataset.data.astype(self._dataType.dtype)
-
-    def _update_attrs(self, attrs: dict) -> dict:
-        new_attrs: dict = {"history": {}}
-        for k, v in attrs.items():
-            match k:
-                case a if a.find("history") == 0:
-                    if self._parse_history:
-                        new_attrs["history"][k[len("history") + 1 :]] = parse_history(v)
-                    else:
-                        new_attrs["history"][k[len("history") + 1 :]] = v
-                case a if a.find("dim") != -1:
-                    new_attrs[re.sub("([x|y|z])dim", "\\1", k)] = v
-                case a if a in ["number_of_files", "zdim_total", "total_grid_size_xyz"]:
-                    pass
-                case _:
-                    new_attrs[k] = attrs[k]
-        return new_attrs
-
-    def _restore_to_anunetcdf_format(self) -> xr.Dataset:
-        """Note this returns a new dataset rather than mutating the CTLabDataset instance."""
-        restored_dataset = self._dataset.rename(
-            {v: k for k, v in self._data_var_tx.items()}
+def read_netcdf(path: os.PathLike, datatype: DataType, **kwargs):
+    path = os.path.normpath(os.path.expanduser(path))
+    if os.path.isdir(path):
+        possible_files = [os.path.join(path, p) for p in os.listdir(path)]
+        files = sorted(list(filter(os.path.isfile, possible_files)))
+        dataset = xr.open_mfdataset(
+            files,
+            combine="nested",
+            concat_dim=[f"{datatype}_zdim"],
+            combine_attrs="drop_conflicts",
+            coords="minimal",
+            compat="override",
+            mask_and_scale=False,
+            **kwargs,
         )
-        restored_dataset.attrs.update(
-            dictdiffer.revert(restored_dataset.attrs, self._attr_diff)
+    else:
+        dataset = xr.open_dataset(
+            path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
         )
-        restored_dataset[str(self._dataType)] = restored_dataset[
-            str(self._dataType)
-        ].astype(self._dataType._dtype_uncorrected)
+    return dataset
 
-        return restored_dataset
 
+class NetCDFDataset(Dataset):
+    @deprecation.deprecated(
+        deprecated_in="0.2",
+        removed_in="1.0",
+        current_version=version,
+        details="Use the from_path method on `Dataset` rather than `NetCDFDataset`.",
+    )
     @classmethod
-    def from_path(cls, path: os.PathLike, parse_history=True, **kwargs):
-        path = os.path.normpath(os.path.expanduser(path))
-        dataType = DataType.infer_from_path(path)
-        if os.path.isdir(path):
-            possible_files = [os.path.join(path, p) for p in os.listdir(path)]
-            files = sorted(list(filter(os.path.isfile, possible_files)))
-            dataset = xr.open_mfdataset(
-                files,
-                combine="nested",
-                concat_dim=[f"{dataType}_zdim"],
-                combine_attrs="drop_conflicts",
-                coords="minimal",
-                compat="override",
-                mask_and_scale=False,
-                **kwargs,
-            )
-        else:
-            dataset = xr.open_dataset(
-                path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
-            )
-        return cls(dataset, dataType, parse_history=parse_history)
-
-    @classmethod
-    # TODO: properly infer datatype!
-    def from_xarray_dataset(cls, dataset: xr.Dataset) -> Self:
-        return cls(dataset, DataType[dataset.attrs["DataType"]])
-
-    # @classmethod
-    # def from_array(
-    #     cls,
-    #     array: xr.DataArray | np.ndarray,
-    #     data_type: DataType,
-    #     voxel_size: VoxelSize,
-    #     voxel_unit: VoxelUnit,
-    #     history: dict[str, str],
-    # ) -> Self: ...
-
-    @property
-    def voxel_size(self) -> VoxelSize:
-        return self._dataset.attrs["voxel_size"]
-
-    @property
-    def voxel_unit(self) -> VoxelUnit:
-        return self._dataset.attrs["voxel_unit"]
-
-    @property
-    def history(self) -> dict:
-        return self._dataset.attrs.get("history", {})
-
-    @property
-    def mask_value(self) -> storage_dtypes | None:
-        return self._dataType.mask_value
-
-    def as_xarray_dataarray(self) -> xr.DataArray:
-        return self._dataset.data
-
-    def as_xarray_dataset(self) -> xr.Dataset:
-        return self._dataset
-
-    # def as_xarray_datatree(self) -> xr.DataTree:
-    #    ...
-
-    # def as_numpy_array(self) -> np.ndarray: ...
-
-    # def save(self, path: os.PathLike, options) -> None: ...
+    def from_path(cls, path: Path, **kwargs):
+        return Dataset.from_path(path, **kwargs)
