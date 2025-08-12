@@ -3,11 +3,11 @@ from pprint import pp
 import re
 
 from anu_ctlab_io.parse_history import parse_history
-import anu_ctlab_io as io
+import anu_ctlab_io
 
 
 def test_parse_history():
-    dataset = io.Dataset.from_path(
+    dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
     for k, v in dataset.history.items():

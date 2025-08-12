@@ -1,9 +1,9 @@
 import numpy as np
-import anu_ctlab_io as io
+import anu_ctlab_io
 
 
 def test_read_zarr():
-    dataset = io.Dataset.from_path("tests/data/tomoHiRes.zarr")
+    dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoHiRes.zarr")
     array = dataset.data
 
     assert array.dtype == np.uint16
@@ -24,7 +24,7 @@ def test_read_zarr():
 
 
 def test_read_ome_zarr():
-    dataset = io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
+    dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
     assert dataset.dimension_names == ("z", "y", "x")
     assert dataset.voxel_unit == "mm"
     assert str(dataset.voxel_unit) == "mm"

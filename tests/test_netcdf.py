@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 import numpy as np
-import anu_ctlab_io as io
+import anu_ctlab_io
 
 
 def test_read_netcdf_single():
-    dataset = io.Dataset.from_path("tests/data/tomoLoRes_SS.nc")
+    dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS.nc")
 
     # check the type is right
     assert str(dataset._datatype) == "tomo"
@@ -21,7 +21,7 @@ def test_read_netcdf_single():
 
 
 def test_read_netcdf_multi():
-    dataset = io.Dataset.from_path(
+    dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
     array = dataset.data
