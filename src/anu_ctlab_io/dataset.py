@@ -38,6 +38,10 @@ class AbstractDataset(ABC):
     def mask_value(self) -> storage_dtypes:
         pass
 
+    @abstractproperty
+    def data(self) -> da.Array:
+        pass
+
     @abstractmethod
     def as_xarray_dataarray(self) -> xr.DataArray:
         pass
@@ -140,8 +144,6 @@ class Dataset(AbstractDataset):
     def data(self) -> da.Array:
         return self._data
 
-    # FIXME: fill out deprecation
-    @deprecation.deprecated()
     @deprecation.deprecated(
         deprecated_in="0.2",
         removed_in="1.0",
@@ -152,7 +154,6 @@ class Dataset(AbstractDataset):
         xr.DataArray
         return self.data
 
-    @deprecation.deprecated()
     @deprecation.deprecated(
         deprecated_in="0.2",
         removed_in="1.0",
