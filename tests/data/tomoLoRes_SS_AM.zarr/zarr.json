@@ -1,0 +1,171 @@
+{
+  "node_type" : "group",
+  "zarr_format" : 3,
+  "attributes" : {
+    "mango" : {
+      "metadata_version_major" : 1,
+      "metadata_version_minor" : 0,
+      "basename" : "tomo",
+      "dataset_id" : "20250812_012804_tomoLoRes_SS_AM",
+      "history" : {
+        "20240108_085320_tomo_RMG" : {
+          "parameters" : {
+
+          },
+          "output" : ""
+        },
+        "20250314_012913_tomoLoRes_SS" : {
+          "parameters" : {
+            "MPI" : {
+              "num_bytes_in_chunk" : "10000000",
+              "num_processors_x" : "1",
+              "num_processors_y" : "1",
+              "num_processors_z" : "1"
+            },
+            "Output_Data_File" : {
+              "netcdf" : {
+                "internal_compression" : "on",
+                "internal_compression_level" : "2",
+                "tiled_block_format" : "False"
+              },
+              "compression" : "NONE",
+              "format" : "netcdf",
+              "include_downsampled_data" : "False",
+              "num_mbytes_per_file" : "1"
+            },
+            "Run_00" : {
+              "Subset" : {
+                "Input_Data_File" : {
+                  "format" : "ZARR3"
+                },
+                "coordinates" : "absolute",
+                "offset_x" : "0",
+                "offset_y" : "0",
+                "offset_z" : "0",
+                "size_x" : "30",
+                "size_y" : "20",
+                "size_z" : "10",
+                "stride_x" : "1",
+                "stride_y" : "1",
+                "stride_z" : "1"
+              },
+              "enabled" : "True",
+              "input_data_type" : "Tomographic_Data",
+              "input_extension" : "zarr",
+              "run_identifier" : "",
+              "suffix" : "LoRes"
+            },
+            "base" : "parms_20250314_122855",
+            "data_directory" : "/home/ljd/dev/anu_ctlab_io/tests/data",
+            "file_name_suffix" : "LoRes",
+            "make_log_files" : "False",
+            "verbosity_level" : "high"
+          },
+          "output" : "\n       executable: </home/ljd/dev/mango/build/install/bin/mango>\n         work_dir: </home/ljd/dev/anu_ctlab_io/tests/data>\n       param_base: <parms_20250314_122855>\n          machine: <lapac71h>\n       start time: <Fri Mar 14 12:29:13 2025>\n   mango git repo: <git@github.com:MaterialsPhysicsANU/mango.git>\n mango git branch: <cmake_cleanup>\n   mango git hash: <9c3495088110b0acb8e4130ff2bf34fde731721b>\n    mango git tag: <v2025.02.07-29-g9c3495088-dirty>\n   mango git diff: < 3 files changed, 7 insertions(+), 7 deletions(-)>\n  package version: <>\ninput dataset ID: 20250313_044643_tomoHiRes_SSby5_SS\n"
+        },
+        "20250812_012804_tomoLoRes_SS_AM" : {
+          "parameters" : {
+            "MPI" : {
+              "num_bytes_in_chunk" : "10000000",
+              "num_processors_x" : "1",
+              "num_processors_y" : "1",
+              "num_processors_z" : "1"
+            },
+            "Output_Data_File" : {
+              "compression" : "NONE",
+              "format" : "zarr3",
+              "include_downsampled_data" : "False",
+              "num_mbytes_per_file" : "256"
+            },
+            "Run_00" : {
+              "Add_Multiply" : {
+                "Add" : {
+                  "add_value" : "0"
+                },
+                "Input_Data_File" : {
+                  "format" : "NETCDF"
+                },
+                "add" : "True",
+                "add_first" : "True",
+                "multiply" : "False"
+              },
+              "enabled" : "True",
+              "input_data_type" : "Tomographic_Data",
+              "input_extension" : "nc",
+              "run_identifier" : "",
+              "suffix" : "LoRes_SS"
+            },
+            "base" : "parms_20250812_112659",
+            "data_directory" : "/home/272/od9832",
+            "file_name_suffix" : "LoRes_SS",
+            "make_log_files" : "False",
+            "verbosity_level" : "high"
+          },
+          "output" : "\n       executable: </g/data/w09/apps/mango/releases/2025.05.01/bin/mango>\n         work_dir: </home/272/od9832>\n       param_base: <parms_20250812_112659>\n          machine: <gadi-cpu-clx-1874.gadi.nci.org.au>\n       start time: <Tue Aug 12 11:28:02 2025>\n   mango git repo: <git@github.com:MaterialsPhysicsANU/mango.git>\n mango git branch: <v2025.05.01>\n   mango git hash: <6825a074db4863b69d0b59cae6692e5bbe2e9834>\n    mango git tag: <v2025.04.25-2-g6825a074d>\n   mango git diff: <>\n  package version: <>\ninput dataset ID: 20250314_012913_tomoLoRes_SS\n"
+        }
+      },
+      "voxel_size_xyz" : [
+        3.374303877353668E-2,
+        3.374303877353668E-2,
+        3.374303877353668E-2
+      ],
+      "voxel_unit" : "mm",
+      "coord_transform" : "",
+      "intensity_f2i_offset_scale" : [
+        0E0,
+        1E0
+      ],
+      "offset_to_coordinate_origin_xyz" : [
+        0E0,
+        0E0,
+        0E0
+      ],
+      "coordinate_origin_xyz" : [
+        0,
+        0,
+        0
+      ]
+    },
+    "ome" : {
+      "multiscales" : [
+        {
+          "axes" : [
+            {
+              "name" : "z",
+              "type" : "space",
+              "unit" : "millimeter"
+            },
+            {
+              "name" : "y",
+              "type" : "space",
+              "unit" : "millimeter"
+            },
+            {
+              "name" : "x",
+              "type" : "space",
+              "unit" : "millimeter"
+            }
+          ],
+          "datasets" : [
+            {
+              "path" : "0",
+              "coordinateTransformations" : [
+                {
+                  "type" : "scale",
+                  "scale" : [
+                    3.374303877353668E-2,
+                    3.374303877353668E-2,
+                    3.374303877353668E-2
+                  ]
+                }
+              ]
+            }
+          ],
+          "coordinateTransformations" : [
+
+          ]
+        }
+      ]
+    }
+  }
+}

@@ -1,14 +1,13 @@
 #!/usr/bin/env python3
 import numpy as np
-import anu_ctlab_io.netcdf as nc
+import anu_ctlab_io as io
 
 
 def test_read_netcdf_single():
-    ctlab_dataset = nc.NetCDFDataset.from_path("tests/data/tomoLoRes_SS.nc")
-    dataset = ctlab_dataset._dataset
+    dataset = io.Dataset.from_path("tests/data/tomoLoRes_SS.nc")
 
     # check the type is right
-    assert str(ctlab_dataset._dataType) == "tomo"
+    assert str(dataset._datatype) == "tomo"
 
     array = dataset.data
     assert array.dtype == np.uint16
@@ -17,16 +16,14 @@ def test_read_netcdf_single():
     assert array.shape[2] == 30
 
     assert (array[:] == np.arange(np.prod(array.shape)).reshape(array.shape)).all()
-    assert "history" in dataset.attrs and isinstance(dataset.attrs["history"], dict)
-    print(dataset.attrs["history"])
+    assert dataset.history and isinstance(dataset.history, dict)
+    print(dataset.history)
 
 
 def test_read_netcdf_multi():
-    ctlab_dataset = nc.NetCDFDataset.from_path(
+    dataset = io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
     )
-    dataset = ctlab_dataset._dataset
-
     array = dataset.data
 
     assert array.dtype == np.uint16
