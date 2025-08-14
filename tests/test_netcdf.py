@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
+import warnings
+
 import numpy as np
 import anu_ctlab_io
+import xarray as xr
 
 
 def test_read_netcdf_single():
@@ -34,10 +37,20 @@ def test_read_netcdf_multi():
     # See generate_test_data_zarr.py
     #   Each chunk of z shape 30 is just filled with a constant value of the chunk index
     #   The chunk z shape is independent of the netcdf block z shape.
-    print(array.to_numpy()[range(0, 100, 5), 0, 0])
+    print(array.compute()[range(0, 100, 5), 0, 0])
     shape_z = array.shape[0]
     chunk_z = 30
     num_chunks_z = (shape_z + chunk_z - 1) // chunk_z
     for i in range(num_chunks_z):
         chunk = array[i * chunk_z : min((i + 1) * chunk_z, shape_z), ...]
         assert (chunk == i).all()
+
+
+def test_deprecated_usage():
+    if int(anu_ctlab_io.version.version[0]) < 1:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            dataset = anu_ctlab_io.netcdf.NetCDFDataset.from_path(
+                "tests/data/tomoHiRes_SS_nc",
+            )
+            assert isinstance(dataset.as_xarray_dataarray(), xr.DataArray)

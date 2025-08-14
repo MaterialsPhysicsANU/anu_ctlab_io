@@ -22,7 +22,7 @@ def dataset_from_netcdf(path: Path, *, parse_history: bool, **kwargs):
     dataset["data"] = dataset.data.astype(datatype.dtype)
     dataset.attrs = _update_attrs(dataset.attrs, parse_history)
     return Dataset(
-        data=dataset.data,
+        data=dataset.data.data,
         dimension_names=dataset.dims,
         datatype=datatype,
         voxel_unit=VoxelUnit.from_str(dataset.attrs["voxel_unit"]),
@@ -89,6 +89,6 @@ class NetCDFDataset(Dataset):
         current_version=version,
         details="Use the from_path method on `Dataset` rather than `NetCDFDataset`.",
     )
-    @classmethod
-    def from_path(cls, path: Path, **kwargs):
+    @staticmethod
+    def from_path(path: Path, **kwargs):
         return Dataset.from_path(path, **kwargs)

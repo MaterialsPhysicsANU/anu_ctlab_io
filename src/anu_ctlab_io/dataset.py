@@ -150,9 +150,9 @@ class Dataset(AbstractDataset):
         current_version=version,
         details="Used `Dataset.data` to access a dask array. Xarray support is being removed.",
     )
-    def as_xarray_dataarray(self) -> da.Array:
-        xr.DataArray
-        return self.data
+    def as_xarray_dataarray(self) -> xr.DataArray:
+        xa = xr.DataArray(self.data, dims={"z", "y", "x"})
+        return xa
 
     @deprecation.deprecated(
         deprecated_in="0.2",
