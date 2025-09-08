@@ -1,5 +1,5 @@
 import os
-from typing import Self
+from typing import Self, TypeAlias
 
 
 from enum import Enum, auto
@@ -10,7 +10,7 @@ import numpy as np
 __all__ = ["storage_dtypes", "DataType"]
 
 
-type storage_dtypes = (
+storage_dtypes: TypeAlias = (
     np.uint8 | np.uint16 | np.uint32 | np.uint64 | np.float16 | np.float32 | np.float64
 )
 

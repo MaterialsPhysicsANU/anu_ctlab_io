@@ -1,10 +1,10 @@
 from enum import Enum, auto
-from typing import Any
+from typing import Any, TypeAlias
 
 import numpy as np
 
 
-type VoxelSize = tuple[np.float32, np.float32, np.float32]
+VoxelSize: TypeAlias = tuple[np.float32, np.float32, np.float32]
 
 
 class VoxelUnit(Enum):
