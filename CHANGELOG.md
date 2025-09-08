@@ -12,6 +12,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Rename `datatype.storage_dtypes` to `datatype.StorageDType` (PEP8)
 - Capitalise `DataType` members (PEP8)
 
+### Removed
+
+- Remove unintentionally public items:
+  - `datatype.DataTypeProperties`
+  - `datatype.DATATYPE_PROPERTIES`
+
 ## [0.2.0]
 
 ### Added
