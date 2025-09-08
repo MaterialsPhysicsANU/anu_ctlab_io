@@ -1,7 +1,10 @@
+import importlib.metadata
+
 # Sphinx configuration for anu-ctlab-io docs
 project = "anu-ctlab-io"
-author = "MaterialsPhysicsANU"  # FIXME
-release = "0.2.0"  # FIXME: Auto?
+copyright = "2025, the Australian National University (ANU)"
+author = "Materials Physics, ANU"  # Can only be a single author, so can't match pyproject.toml. Find actual authors there.
+release = importlib.metadata.version("anu_ctlab_io")
 extensions = [
     # 'myst_parser',
     "sphinx_rtd_theme",
