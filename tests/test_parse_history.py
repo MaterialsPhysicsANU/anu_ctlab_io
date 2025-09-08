@@ -2,7 +2,7 @@
 from pprint import pp
 import re
 
-from anu_ctlab_io.parse_history import parse_history
+from anu_ctlab_io._parse_history import parse_history
 import anu_ctlab_io
 
 

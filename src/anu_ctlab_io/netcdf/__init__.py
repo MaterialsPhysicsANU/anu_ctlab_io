@@ -5,12 +5,11 @@ from pathlib import Path
 
 import xarray as xr
 
-from anu_ctlab_io.dataset import Dataset
-from anu_ctlab_io.datatype import DataType
-from anu_ctlab_io.parse_history import parse_history
-from anu_ctlab_io.version import version
-from anu_ctlab_io.voxel_properties import VoxelUnit
-
+from anu_ctlab_io._dataset import Dataset
+from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._parse_history import parse_history
+from anu_ctlab_io._version import version
+from anu_ctlab_io._voxel_properties import VoxelUnit
 
 __all__ = ["NetCDFDataset", "dataset_from_netcdf"]
 

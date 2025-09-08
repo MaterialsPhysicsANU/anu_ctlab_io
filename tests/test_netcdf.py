@@ -47,7 +47,7 @@ def test_read_netcdf_multi():
 
 
 def test_deprecated_usage():
-    if int(anu_ctlab_io.version.version[0]) < 1:
+    if int(anu_ctlab_io.__version__[0]) < 1:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore")
             dataset = anu_ctlab_io.netcdf.NetCDFDataset.from_path(
