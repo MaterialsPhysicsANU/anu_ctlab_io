@@ -2,15 +2,15 @@ import os
 from typing import Self, TypeAlias
 
 
-from enum import Enum, auto
+from enum import Enum
 from dataclasses import dataclass
 import numpy as np
 
 
-__all__ = ["storage_dtypes", "DataType"]
+__all__ = ["StorageDType", "DataType"]
 
 
-storage_dtypes: TypeAlias = (
+StorageDType: TypeAlias = (
     np.uint8 | np.uint16 | np.uint32 | np.uint64 | np.float16 | np.float32 | np.float64
 )
 
@@ -42,20 +42,20 @@ DATATYPE_PROPERTIES: dict[str, DataTypeProperties] = {
 
 
 class DataType(Enum):
-    proju16 = auto()
-    projf32 = auto()
+    PROJU16 = "proju16"
+    PROJF32 = "projf32"
     # tomo_float is above tomo, to ensure it is checked first when iterating over DataType
-    tomo_float = auto()
-    tomo = auto()
-    float16 = auto()
-    float64 = auto()
-    segmented = auto()
-    distance_map = auto()
-    labels = auto()
-    rgba8 = auto()
+    TOMO_FLOAT = "tomo_float"
+    TOMO = "tomo"
+    FLOAT16 = "float16"
+    FLOAT64 = "float64"
+    SEGMENTED = "segmented"
+    DISTANCE_MAP = "distance_map"
+    LABELS = "labels"
+    RGBA8 = "rgba8"
 
     def __str__(self) -> str:
-        return self.__dict__["_name_"]
+        return self.value
 
     @property
     def is_discrete(self) -> bool:
@@ -69,23 +69,20 @@ class DataType(Enum):
     def _dtype_uncorrected(self) -> type:
         return DATATYPE_PROPERTIES[str(self)].dtype_uncorrected
 
-    def _mask_value(self, uncorrected: bool = False) -> storage_dtypes | None:
-        idx = "dtype_uncorrected" if uncorrected else "dtype"
+    def _mask_value(self, uncorrected: bool = False) -> StorageDType | None:
         props = DATATYPE_PROPERTIES[str(self)]
-        if props.__dict__[idx] is None:
+        if props.mask_value is None:
             return None
-        return props.__dict__[idx](
-            np.array(props.mask_value).astype(
-                props.__dict__[idx]
-            )  # req'd to do overflows as desired
-        )
+
+        dtype = props.dtype_uncorrected if uncorrected else props.dtype
+        return (dtype)(props.mask_value)
 
     @property
-    def mask_value(self):
+    def mask_value(self) -> StorageDType | None:
         return self._mask_value()
 
     @property
-    def _mask_value_uncorrected(self):
+    def _mask_value_uncorrected(self) -> StorageDType | None:
         return self._mask_value(True)
 
     @classmethod
@@ -93,7 +90,7 @@ class DataType(Enum):
         basename = os.path.basename(os.path.normpath(path)).removeprefix("cntr_")
         for data_type in DataType:
             if basename.startswith(str(data_type)):
-                return cls[str(data_type)]
+                return cls(data_type)
         raise RuntimeError("File datatype not recognised from name.")
 
     @classmethod

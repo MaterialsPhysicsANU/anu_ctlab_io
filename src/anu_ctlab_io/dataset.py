@@ -7,7 +7,7 @@ import deprecation  # type: ignore
 import xarray as xr
 
 
-from anu_ctlab_io.datatype import DataType, storage_dtypes
+from anu_ctlab_io.datatype import DataType, StorageDType
 from anu_ctlab_io.version import version
 from anu_ctlab_io.voxel_properties import VoxelUnit, VoxelSize
 
@@ -35,7 +35,7 @@ class AbstractDataset(ABC):
         pass
 
     @abstractproperty
-    def mask_value(self) -> storage_dtypes:
+    def mask_value(self) -> StorageDType | None:
         pass
 
     @abstractproperty
@@ -137,7 +137,7 @@ class Dataset(AbstractDataset):
         return self._history
 
     @property
-    def mask_value(self) -> storage_dtypes:
+    def mask_value(self) -> StorageDType | None:
         return self._datatype.mask_value
 
     @property
