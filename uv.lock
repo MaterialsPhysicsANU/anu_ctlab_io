@@ -56,8 +56,8 @@ dev = [
     { name = "pre-commit", specifier = ">=4.1.0" },
     { name = "pytest", specifier = ">=8.3.5" },
     { name = "ruff", specifier = ">=0.9.5" },
-    { name = "sphinx", specifier = ">=7.2.0" },
-    { name = "sphinx-rtd-theme", specifier = ">=2.0.0" },
+    { name = "sphinx", specifier = ">=8.2.3" },
+    { name = "sphinx-rtd-theme", specifier = ">=3.0.2" },
 ]
 
 [[package]]
