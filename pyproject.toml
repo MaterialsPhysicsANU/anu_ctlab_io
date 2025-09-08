@@ -19,6 +19,22 @@ dependencies = [
     "deprecation>=2.1.0",
     "zarr>=3.1.1",
 ]
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [
+    {name = "Bogdan Maviichuk", email = "bogdan.maviichuk@anu.edu.au"},
+    {name = "Lachlan Deakin", email = "lachlan.deakin@anu.edu.au"},
+    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
+]
+maintainers = [
+    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
+]
+
+[project.urls]
+# FIXME: Add Homepage on v1.0.0 release
+Repository = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io"
+Issues = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/issues"
+Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/master/CHANGELOG.md"
 
 [dependency-groups]
 dev = [
@@ -26,6 +42,8 @@ dev = [
     "ruff>=0.9.5",
     "pytest>=8.3.5",
     "netcdf4>=1.7.2",
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme>=2.0.0",
 ]
 
 [tool.pytest.ini_options]
@@ -36,8 +54,16 @@ filterwarnings = [
     'ignore:numpy.ndarray size changed, may indicate binary incompatibility.'
 ]
 addopts = [
-    "--import-mode=importlib" # recommended by pytest
+    "--import-mode=importlib", # recommended by pytest
+    "-ra",
+    "--strict-config",
+    "--strict-markers"
 ]
+minversion = "7.0"
+testpaths = ["tests"]
+log_cli_level = "INFO"
+xfail_strict = true
+
 
 [tool.tox]
 env_list = ["3.12", "3.13"]
@@ -46,6 +72,18 @@ env_list = ["3.12", "3.13"]
 deps = ["pytest"]
 commands = [
     ["pytest"],
+]
+
+[tool.mypy]
+strict = true
+warn_unreachable = true
+enable_error_code = ["ignore-without-code", "redundant-expr", "truthy-bool"]
+
+[tool.ruff.lint]
+extend-select = [
+  "B", # flake8-bugbear
+  "I", # isort
+  "UP", # pyupgrade
 ]
 
 [[tool.mypy.overrides]]

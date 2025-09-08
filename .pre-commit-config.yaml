@@ -46,3 +46,17 @@ repos:
           - zarr
           - dask
           - deprecation
+  - repo: https://github.com/adamchainz/blacken-docs
+    rev: "v1.12.1"
+    hooks:
+      - id: blacken-docs
+        additional_dependencies:
+          - black==22.12.0
+  - repo: https://github.com/crate-ci/typos
+    rev: v1.36.2
+    hooks:
+      - id: typos
+  - repo: https://github.com/rbubley/mirrors-prettier
+    rev: "v3.6.2"
+    hooks:
+      - id: prettier
