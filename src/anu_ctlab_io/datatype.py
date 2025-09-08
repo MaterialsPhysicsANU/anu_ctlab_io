@@ -16,7 +16,7 @@ StorageDType: TypeAlias = (
 
 
 @dataclass
-class DataTypeProperties:
+class _DataTypeProperties:
     """
     The properties of a DataType in the ANU NetCDF format.
     """
@@ -27,17 +27,17 @@ class DataTypeProperties:
     mask_value: int | float | None
 
 
-DATATYPE_PROPERTIES: dict[str, DataTypeProperties] = {
-    "proju16": DataTypeProperties(False, np.uint16, np.int16, None),
-    "projf32": DataTypeProperties(False, np.float32, np.float32, None),
-    "tomo_float": DataTypeProperties(False, np.float32, np.float32, 1.0e30),
-    "tomo": DataTypeProperties(False, np.uint16, np.int16, 65535),
-    "float16": DataTypeProperties(False, np.float16, np.float16, None),
-    "float64": DataTypeProperties(False, np.float64, np.float64, 1.0e300),
-    "segmented": DataTypeProperties(True, np.uint8, np.int8, 255),
-    "distance_map": DataTypeProperties(False, np.float32, np.float32, -2.0),
-    "labels": DataTypeProperties(True, np.int32, np.int32, 2147483647),
-    "rgba8": DataTypeProperties(False, np.uint8, np.int8, None),
+_DATATYPE_PROPERTIES: dict[str, _DataTypeProperties] = {
+    "proju16": _DataTypeProperties(False, np.uint16, np.int16, None),
+    "projf32": _DataTypeProperties(False, np.float32, np.float32, None),
+    "tomo_float": _DataTypeProperties(False, np.float32, np.float32, 1.0e30),
+    "tomo": _DataTypeProperties(False, np.uint16, np.int16, 65535),
+    "float16": _DataTypeProperties(False, np.float16, np.float16, None),
+    "float64": _DataTypeProperties(False, np.float64, np.float64, 1.0e300),
+    "segmented": _DataTypeProperties(True, np.uint8, np.int8, 255),
+    "distance_map": _DataTypeProperties(False, np.float32, np.float32, -2.0),
+    "labels": _DataTypeProperties(True, np.int32, np.int32, 2147483647),
+    "rgba8": _DataTypeProperties(False, np.uint8, np.int8, None),
 }
 
 
@@ -59,18 +59,18 @@ class DataType(Enum):
 
     @property
     def is_discrete(self) -> bool:
-        return DATATYPE_PROPERTIES[str(self)].discrete
+        return _DATATYPE_PROPERTIES[str(self)].discrete
 
     @property
     def dtype(self) -> type:
-        return DATATYPE_PROPERTIES[str(self)].dtype
+        return _DATATYPE_PROPERTIES[str(self)].dtype
 
     @property
     def _dtype_uncorrected(self) -> type:
-        return DATATYPE_PROPERTIES[str(self)].dtype_uncorrected
+        return _DATATYPE_PROPERTIES[str(self)].dtype_uncorrected
 
     def _mask_value(self, uncorrected: bool = False) -> StorageDType | None:
-        props = DATATYPE_PROPERTIES[str(self)]
+        props = _DATATYPE_PROPERTIES[str(self)]
         if props.mask_value is None:
             return None
 
