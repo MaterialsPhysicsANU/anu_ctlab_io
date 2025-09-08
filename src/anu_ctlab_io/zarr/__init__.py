@@ -4,9 +4,9 @@ from typing import Any
 import dask.array as da
 import zarr
 
-from anu_ctlab_io.dataset import Dataset
-from anu_ctlab_io.datatype import DataType
-from anu_ctlab_io.voxel_properties import VoxelUnit
+from anu_ctlab_io._dataset import Dataset
+from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._voxel_properties import VoxelUnit
 
 
 def dataset_from_zarr(path: Path, **kwargs) -> Dataset:

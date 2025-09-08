@@ -14,9 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Removed
 
-- Remove unintentionally public items:
-  - `datatype.DataTypeProperties`
-  - `datatype.DATATYPE_PROPERTIES`
+- Remove unintentionally public modules: `dataset`, `datatype`, `parse_history`, `version`, `voxel_properties`
 
 ## [0.2.0]
 

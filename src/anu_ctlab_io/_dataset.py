@@ -7,9 +7,9 @@ import deprecation  # type: ignore
 import xarray as xr
 
 
-from anu_ctlab_io.datatype import DataType, StorageDType
-from anu_ctlab_io.version import version
-from anu_ctlab_io.voxel_properties import VoxelUnit, VoxelSize
+from anu_ctlab_io._datatype import DataType, StorageDType
+from anu_ctlab_io._version import version
+from anu_ctlab_io._voxel_properties import VoxelUnit, VoxelSize
 
 
 class AbstractDataset(ABC):
