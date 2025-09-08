@@ -26,6 +26,9 @@ dev = [
     "ruff>=0.9.5",
     "pytest>=8.3.5",
     "netcdf4>=1.7.2",
+    "sphinx>=7.2.0",
+    "sphinx-rtd-theme>=2.0.0",
+    # "myst-parser>=2.0.0", # for Markdown support
 ]
 
 [tool.pytest.ini_options]
