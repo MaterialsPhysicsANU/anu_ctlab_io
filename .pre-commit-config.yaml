@@ -42,7 +42,6 @@ repos:
           - xarray
           - matplotlib
           - lark
-          - hidefix
           - zarr
           - dask
           - deprecation

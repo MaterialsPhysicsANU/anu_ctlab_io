@@ -10,15 +10,17 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "dask[array]>=2025.2.0",
-    "h5netcdf>=1.6.1",
     "xarray>=2025.1.2",
     "numpy>=2.2.3",
-    "hidefix>=0.12.0",
     "lark>=1.2.2",
     "dictdiffer>=0.9.0",
     "deprecation>=2.1.0",
-    "zarr>=3.1.1",
 ]
+default-optional-dependency-keys = [
+    "netcdf",
+    "zarr",
+]
+
 license = "MIT"
 license-files = ["LICENSE.md"]
 authors = [
@@ -28,6 +30,14 @@ authors = [
 ]
 maintainers = [
     {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
+]
+
+[project.optional-dependencies]
+netcdf = [
+    "netcdf4>=1.7.2",
+]
+zarr = [
+    "zarr>=3.1.1",
 ]
 
 [project.urls]
@@ -41,9 +51,8 @@ dev = [
     "pre-commit>=4.1.0",
     "ruff>=0.9.5",
     "pytest>=8.3.5",
-    "netcdf4>=1.7.2",
-    "sphinx>=7.2.0",
-    "sphinx-rtd-theme>=2.0.0",
+    "sphinx>=8.2.3",
+    "sphinx-rtd-theme>=3.0.2",
 ]
 
 [tool.pytest.ini_options]
@@ -87,5 +96,5 @@ extend-select = [
 ]
 
 [[tool.mypy.overrides]]
-module = ["hidefix.*", "dictdiffer.*"]
+module = ["dictdiffer.*"]
 follow_untyped_imports = true
