@@ -4,8 +4,16 @@ import warnings
 import numpy as np
 import anu_ctlab_io
 import xarray as xr
+import pytest
+
+try:
+    import anu_ctlab_io.netcdf
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
 
 
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_read_netcdf_single():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS.nc")
 
@@ -23,6 +31,7 @@ def test_read_netcdf_single():
     print(dataset.history)
 
 
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_read_netcdf_multi():
     dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",
@@ -46,6 +55,7 @@ def test_read_netcdf_multi():
         assert (chunk == i).all()
 
 
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_deprecated_usage():
     if int(anu_ctlab_io.__version__[0]) < 1:
         with warnings.catch_warnings():

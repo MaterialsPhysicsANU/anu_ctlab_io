@@ -1,11 +1,19 @@
 #!/usr/bin/env python
 from pprint import pp
 import re
+import pytest
 
 from anu_ctlab_io._parse_history import parse_history
 import anu_ctlab_io
 
+try:
+    import anu_ctlab_io.netcdf
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
 
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_parse_history():
     dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",

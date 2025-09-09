@@ -1,7 +1,14 @@
 import numpy as np
 import anu_ctlab_io
+import pytest
 
+try:
+    import anu_ctlab_io.zarr
+    _HAS_ZARR = True
+except ImportError:
+    _HAS_ZARR = False
 
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_read_zarr():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoHiRes.zarr")
     array = dataset.data
@@ -23,6 +30,7 @@ def test_read_zarr():
         assert (chunk == i).all()
 
 
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_read_ome_zarr():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
     assert dataset.dimension_names == ("z", "y", "x")
