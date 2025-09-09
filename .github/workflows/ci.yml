@@ -26,7 +26,7 @@ jobs:
       - name: run tests
         run: uvx --with tox-uv tox
   lint:
-    name: test
+    name: lint
     runs-on: ubuntu-latest
     steps:
       - name: checkout
