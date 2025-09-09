@@ -4,4 +4,4 @@ docs:
     uv run sphinx-build -M html docs docs/_build
 
 test:
-    uv run pytest
+    uvx --with tox-uv tox

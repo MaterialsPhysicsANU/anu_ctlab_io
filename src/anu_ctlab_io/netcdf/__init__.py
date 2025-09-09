@@ -1,4 +1,5 @@
 import deprecation  # type: ignore
+import importlib.util
 import os
 import re
 from pathlib import Path
@@ -10,6 +11,9 @@ from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import parse_history
 from anu_ctlab_io._version import version
 from anu_ctlab_io._voxel_properties import VoxelUnit
+
+if importlib.util.find_spec("netCDF4") is None and importlib.util.find_spec("h5netcdf") is None:
+    raise ImportError("Neither netCDF4 nor h5netcdf could be imported.")
 
 __all__ = ["NetCDFDataset", "dataset_from_netcdf"]
 

@@ -1,7 +1,12 @@
 import xarray as xr
 import numpy as np
+import pytest
+import importlib.util
 
+_HAS_ZARR = importlib.util.find_spec("zarr")
+_HAS_NETCDF4 = importlib.util.find_spec("netcdf4")
 
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_manual_read_netcdf_single():
     dataset = xr.open_mfdataset("tests/data/tomoLoRes_SS.nc")
 
@@ -27,6 +32,7 @@ def test_manual_read_netcdf_single():
     assert (array[:] == np.arange(np.prod(array.shape)).reshape(array.shape)).all()
 
 
+@pytest.mark.skipif(not _HAS_NETCDF4, reason="Requires 'netcdf' extra")
 def test_manual_read_netcdf_multi():
     dataset = xr.open_mfdataset(
         "tests/data/tomoHiRes_SS_nc/*",

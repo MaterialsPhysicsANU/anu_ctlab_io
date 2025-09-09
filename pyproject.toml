@@ -35,6 +35,7 @@ maintainers = [
 [project.optional-dependencies]
 netcdf = [
     "netcdf4>=1.7.2",
+    "scipy>=1.16.1", # netCDF 3 support
 ]
 zarr = [
     "zarr>=3.1.1",
@@ -72,16 +73,6 @@ minversion = "7.0"
 testpaths = ["tests"]
 log_cli_level = "INFO"
 xfail_strict = true
-
-
-[tool.tox]
-env_list = ["3.12", "3.13"]
-
-[tool.tox.env_run_base]
-deps = ["pytest"]
-commands = [
-    ["pytest"],
-]
 
 [tool.mypy]
 strict = true

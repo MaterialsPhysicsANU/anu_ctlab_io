@@ -80,6 +80,13 @@ class Dataset(AbstractDataset):
         self._voxel_size = voxel_size
         self._history = history
 
+    @staticmethod
+    def _import_with_extra(module: str, extra: str):
+        try:
+            return __import__(module, fromlist=[''])
+        except ImportError as e:
+            raise ImportError(f"{module} is missing. Please install with the '{extra}' extra: pip install anu-ctlab-io[{extra}]") from e
+
     @classmethod
     def from_path(
         cls,
@@ -90,25 +97,27 @@ class Dataset(AbstractDataset):
         **kwargs: Any,
     ):
         # function level imports avoid the circular dependancy
-        from anu_ctlab_io.netcdf import dataset_from_netcdf
-        from anu_ctlab_io.zarr import dataset_from_zarr
 
         if isinstance(path, str):
             path = Path(path)
 
         match filetype:
             case "NetCDF":
-                return dataset_from_netcdf(path, parse_history=parse_history, **kwargs)
+                netcdf_mod = cls._import_with_extra('anu_ctlab_io.netcdf', 'netcdf')
+                return netcdf_mod.dataset_from_netcdf(path, parse_history=parse_history, **kwargs)
             case "zarr":
-                return dataset_from_zarr(path, parse_history=parse_history, **kwargs)
+                zarr_mod = cls._import_with_extra('anu_ctlab_io.zarr', 'zarr')
+                return zarr_mod.dataset_from_zarr(path, parse_history=parse_history, **kwargs)
             case "auto":
                 if path.name[-2:] == "nc":
-                    return dataset_from_netcdf(
+                    netcdf_mod = cls._import_with_extra('anu_ctlab_io.netcdf', 'netcdf')
+                    return netcdf_mod.dataset_from_netcdf(
                         path, parse_history=parse_history, **kwargs
                     )
 
                 if path.name[-4:] == "zarr":
-                    return dataset_from_zarr(
+                    zarr_mod = cls._import_with_extra('anu_ctlab_io.zarr', 'zarr')
+                    return zarr_mod.dataset_from_zarr(
                         path, parse_history=parse_history, **kwargs
                     )
 
