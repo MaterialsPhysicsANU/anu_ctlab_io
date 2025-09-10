@@ -1,12 +1,15 @@
 import numpy as np
-import anu_ctlab_io
 import pytest
+
+import anu_ctlab_io
 
 try:
     import anu_ctlab_io.zarr
+
     _HAS_ZARR = True
 except ImportError:
     _HAS_ZARR = False
+
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_read_zarr():
@@ -31,7 +34,7 @@ def test_read_zarr():
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_read_ome_zarr():
+def test_read_some_zarr():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
     assert dataset.dimension_names == ("z", "y", "x")
     assert dataset.voxel_unit == "mm"

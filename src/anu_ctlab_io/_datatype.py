@@ -1,16 +1,15 @@
 import os
-from typing import Self, TypeAlias
-
-
-from enum import Enum
 from dataclasses import dataclass
-import numpy as np
+from enum import Enum
+from pathlib import Path
+from typing import Self
 
+import numpy as np
 
 __all__ = ["StorageDType", "DataType"]
 
 
-StorageDType: TypeAlias = (
+type StorageDType = (
     np.uint8 | np.uint16 | np.uint32 | np.uint64 | np.float16 | np.float32 | np.float64
 )
 
@@ -42,17 +41,17 @@ _DATATYPE_PROPERTIES: dict[str, _DataTypeProperties] = {
 
 
 class DataType(Enum):
-    PROJU16 = "proju16"
-    PROJF32 = "projf32"
+    _PROJU16 = "proju16"
+    _PROJF32 = "projf32"
     # tomo_float is above tomo, to ensure it is checked first when iterating over DataType
-    TOMO_FLOAT = "tomo_float"
-    TOMO = "tomo"
-    FLOAT16 = "float16"
-    FLOAT64 = "float64"
-    SEGMENTED = "segmented"
-    DISTANCE_MAP = "distance_map"
-    LABELS = "labels"
-    RGBA8 = "rgba8"
+    _TOMO_FLOAT = "tomo_float"
+    _TOMO = "tomo"
+    _FLOAT16 = "float16"
+    _FLOAT64 = "float64"
+    _SEGMENTED = "segmented"
+    _DISTANCE_MAP = "distance_map"
+    _LABELS = "labels"
+    _RGBA8 = "rgba8"
 
     def __str__(self) -> str:
         return self.value
@@ -75,7 +74,8 @@ class DataType(Enum):
             return None
 
         dtype = props.dtype_uncorrected if uncorrected else props.dtype
-        return (dtype)(props.mask_value)
+        val: StorageDType = dtype(props.mask_value)
+        return val
 
     @property
     def mask_value(self) -> StorageDType | None:
@@ -86,7 +86,7 @@ class DataType(Enum):
         return self._mask_value(True)
 
     @classmethod
-    def infer_from_path(cls, path: os.PathLike) -> Self:
+    def infer_from_path(cls, path: str | Path) -> Self:
         basename = os.path.basename(os.path.normpath(path)).removeprefix("cntr_")
         for data_type in DataType:
             if basename.startswith(str(data_type)):
@@ -98,4 +98,4 @@ class DataType(Enum):
         try:
             return cls(basename)
         except KeyError as e:
-            raise RuntimeError(f"Basename {basename} not recognized.", e)
+            raise RuntimeError(f"Basename {basename} not recognized.", e) from e

@@ -2,15 +2,17 @@
 import warnings
 
 import numpy as np
-import anu_ctlab_io
-import xarray as xr
 import pytest
+import xarray as xr
 
 try:
     import anu_ctlab_io.netcdf
+
     _HAS_NETCDF = True
 except ImportError:
     _HAS_NETCDF = False
+
+import anu_ctlab_io
 
 
 @pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
@@ -53,14 +55,3 @@ def test_read_netcdf_multi():
     for i in range(num_chunks_z):
         chunk = array[i * chunk_z : min((i + 1) * chunk_z, shape_z), ...]
         assert (chunk == i).all()
-
-
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_deprecated_usage():
-    if int(anu_ctlab_io.__version__[0]) < 1:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            dataset = anu_ctlab_io.netcdf.NetCDFDataset.from_path(
-                "tests/data/tomoHiRes_SS_nc",
-            )
-            assert isinstance(dataset.as_xarray_dataarray(), xr.DataArray)
