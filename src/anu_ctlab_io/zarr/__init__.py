@@ -21,9 +21,9 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_size = attrs["voxel_size_xyz"]
         datatype = DataType.from_basename(attrs["basename"])
 
-    except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
+    except zarr.errors.NodeTypeValidationError:  # happens if this is an some
         zg = zarr.open_group(path, zarr_format=3)
-        multiscale = zg.metadata.attributes["ome"]["multiscales"][0]
+        multiscale = zg.metadata.attributes["some"]["multiscales"][0]
         component_path = multiscale["datasets"][0]["path"]
         data = da.from_zarr(path, component=component_path, **kwargs)  # type: ignore[no-untyped-call]
         attrs = dict(zg.attrs)["mango"]  # type: ignore[assignment]

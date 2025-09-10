@@ -33,7 +33,10 @@ def test_read_zarr():
         assert (chunk == i).all()
 
 
+<<<<<<< HEAD
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+=======
+>>>>>>> 2931ed6 (chore: fix type hinting)
 def test_read_some_zarr():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
     assert dataset.dimension_names == ("z", "y", "x")
