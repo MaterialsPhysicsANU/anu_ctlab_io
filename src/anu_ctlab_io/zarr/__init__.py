@@ -10,7 +10,6 @@ from anu_ctlab_io._voxel_properties import VoxelUnit
 
 
 def dataset_from_zarr(path: Path, **kwargs) -> Dataset:
-    datatype = DataType.infer_from_path(path)
     try:
         data = da.from_zarr(path, **kwargs)
         za = zarr.open_array(
@@ -20,6 +19,7 @@ def dataset_from_zarr(path: Path, **kwargs) -> Dataset:
         dimension_names: tuple[str, ...] = za.metadata.dimension_names  # type: ignore # -- because Zarr has iffy typehinting
         voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
         voxel_size = attrs["voxel_size_xyz"]
+        datatype = DataType.from_basename(attrs["basename"])
 
     except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
         zg = zarr.open_group(path, zarr_format=3)
@@ -27,6 +27,7 @@ def dataset_from_zarr(path: Path, **kwargs) -> Dataset:
         component_path = multiscale["datasets"][0]["path"]
         data = da.from_zarr(path, component=component_path, **kwargs)
         attrs: dict[str, Any] = dict(zg.attrs)["mango"]  # type: ignore # -- because Zarr has iffy typehinting
+        datatype = DataType.from_basename(attrs["basename"])
         dimension_names = tuple([x["name"] for x in multiscale["axes"]])  # type: ignore # -- because Zarr has iffy typehinting
         voxel_unit_list: tuple[str, ...] = tuple(
             [x["unit"] for x in multiscale["axes"]]
