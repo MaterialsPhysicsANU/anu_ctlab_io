@@ -37,7 +37,7 @@ type History = dict[Token, KVPairs | Section | None]
 class _HistoryTransformer(Transformer[Token, History]):
     def kv_pair(self, tree: list[Branch[Token]]) -> KVPairs:
         assert isinstance(tree[0], Token)
-        assert isinstance(tree[1], (Token, None))
+        assert isinstance(tree[1], Token | None)
         return {tree[0]: tree[1]}
 
     def section(self, tree: list[Branch[Token] | SectionContents]) -> Section:
