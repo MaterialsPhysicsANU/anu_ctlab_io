@@ -49,6 +49,22 @@ class DatasetFormatException(Exception):
 
 
 class Dataset(AbstractDataset):
+    """A :any:`Dataset`, containing the data and metadata read from one of the ANU CTLab file formats.
+
+    :any:`Dataset`\\ s are the primary interface to the :py:mod:`anu_ctlab_io` package, and should generally be
+    constructed by users via the :any:`Dataset.from_path` classmethod.
+
+    The initializer of this class should only be used when manually constructing a :any:`Dataset`, which is not
+    the primary usage of this library.
+
+    :param data: The data contained in the :any:`Dataset`.
+    :param dimension_names: The names of the dimensions of the :any:`Dataset`.
+    :param voxel_unit: The unit the `voxel_size` is in terms of.
+    :param voxel_size: The size of each voxel in the :any:`Dataset`.
+    :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
+    :param history: The history of the :any:`Dataset`.
+    """
+
     _data: da.Array
     _datatype: DataType
     _voxel_unit: VoxelUnit
@@ -90,6 +106,14 @@ class Dataset(AbstractDataset):
         parse_history: bool = True,
         **kwargs: Any,
     ) -> "Dataset":
+        """Creates a :any:`Dataset` from the data at the given ``path``.
+
+        The data at ``path`` must be in one of the ANU mass data storage formats, and the optional dependencies required for the specific
+        file format must be installed.
+
+        :param path: The ``path`` to read data from.
+        :rtype: :any:`Dataset`
+        """
         if isinstance(path, str):
             path = Path(path)
 
@@ -126,26 +150,37 @@ class Dataset(AbstractDataset):
 
     @property
     def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]:
+        """The voxel size of the data."""
         return self._voxel_size
 
     @property
     def voxel_unit(self) -> VoxelUnit:
+        """The unit the data's voxel size is in."""
         return self._voxel_unit
 
     @property
     def dimension_names(self) -> tuple[str, ...]:
+        """The names of the data's dimensions. Usually ``("z", "y", "x")``."""
         return self._dimension_names
 
     @property
     def history(self) -> dict[Any, Any] | str:
+        """The history metadata associated with the :any:`Dataset`.
+
+        If parsing is enabled this will be a nested dict, otherwise it will be a dictionary
+        without any guaranteed structure."""
         return self._history
 
     @property
     def mask_value(self) -> StorageDType | None:
+        """The mask value being used by the data."""
         return self._datatype.mask_value
 
     @property
     def data(self) -> da.Array:
+        """The data contained within the :any:`Dataset`.
+
+        This is a `Dask Array <https://docs.dask.org/en/stable/array.html>`_."""
         return self._data
 
 

@@ -9,8 +9,9 @@ extensions = [
     # 'myst_parser',
     "sphinx_rtd_theme",
     "sphinx.ext.autodoc",
-    "sphinx.ext.napoleon",
+    # "sphinx.ext.napoleon",
     "sphinx.ext.autosummary",
+    "sphinx_autodoc_typehints",
 ]
 html_theme = "sphinx_rtd_theme"
 autosummary_generate = True
@@ -22,6 +23,7 @@ exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
 autodoc_default_options = {
     "members": True,
     "undoc-members": True,
+    "member-order": "bysource",
     "show-inheritance": True,
     "inherited-members": True,
 }

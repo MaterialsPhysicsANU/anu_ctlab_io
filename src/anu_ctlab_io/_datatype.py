@@ -41,6 +41,14 @@ _DATATYPE_PROPERTIES: dict[str, _DataTypeProperties] = {
 
 
 class DataType(Enum):
+    """An ``Enum`` representing the datatypes produced by MANGO.
+
+    This is used when parsing metadata to construct a :any:`Dataset`, and generally should not need
+    to be constructed by a user (use the :any:`Dataset.from_path` classmethod instead).
+
+    When needed, :any:`DataType`\\ s should be constructed via either the :any:`infer_from_path` or
+    the :any:`from_basename` classmethods."""
+
     _PROJU16 = "proju16"
     _PROJF32 = "projf32"
     # tomo_float is above tomo, to ensure it is checked first when iterating over DataType
@@ -58,10 +66,18 @@ class DataType(Enum):
 
     @property
     def is_discrete(self) -> bool:
+        """Whether the :any:`DataType` is discrete."""
         return _DATATYPE_PROPERTIES[str(self)].discrete
 
     @property
     def dtype(self) -> type:
+        """The numpy ``dtype`` appropriate for storing data of the :any:`DataType`.
+
+        Because of a historical decision in MANGO, the datatype listed in ANU CTLab NetCDFs is not
+        guaranteed to have the correct signed/unsigned type -- for some MANGO datatypes, data recorded
+        in the NetCDF as an integer type is really an unsigned integer stored in an integer.
+        The :any:`dtype` is the real datatype of the data, regardless of whether a loaded NetCDF
+        exhibits this behaviour (trust this value, not the NetCDF header)."""
         return _DATATYPE_PROPERTIES[str(self)].dtype
 
     @property
@@ -79,6 +95,9 @@ class DataType(Enum):
 
     @property
     def mask_value(self) -> StorageDType | None:
+        """The mask value of the :any:`DataType`.
+
+        This value is corrected for signedness if required (see :any:`dtype`\\ )."""
         return self._mask_value()
 
     @property
@@ -87,6 +106,11 @@ class DataType(Enum):
 
     @classmethod
     def infer_from_path(cls, path: str | Path) -> Self:
+        """Create a :any:`DataType` object by inferring it from the path to the data being loaded.
+
+        Relies on MANGO's standardised file naming.
+
+        :rtype: :any:`DataType`"""
         basename = os.path.basename(os.path.normpath(path)).removeprefix("cntr_")
         for data_type in DataType:
             if basename.startswith(str(data_type)):
@@ -95,6 +119,11 @@ class DataType(Enum):
 
     @classmethod
     def from_basename(cls, basename: str) -> Self:
+        """Create a :any:`DataType` object from it's name as a string.
+
+        E.g., ``DataType.from_basename("tomo")``
+
+        :rtype: :any:`DataType`"""
         try:
             return cls(basename)
         except KeyError as e:

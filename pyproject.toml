@@ -54,6 +54,7 @@ dev = [
     "pytest>=8.3.5",
     "sphinx>=8.2.3",
     "sphinx-rtd-theme>=3.0.2",
+    "sphinx-autodoc-typehints>=3.2.0",
 ]
 
 [tool.pytest.ini_options]
@@ -85,7 +86,3 @@ extend-select = [
   "I", # isort
   "UP", # pyupgrade
 ]
-
-[[tool.mypy.overrides]]
-module = ["dictdiffer.*"]
-follow_untyped_imports = true
