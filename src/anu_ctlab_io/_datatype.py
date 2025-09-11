@@ -96,6 +96,6 @@ class DataType(Enum):
     @classmethod
     def from_basename(cls, basename: str) -> Self:
         try:
-            return cls[basename]
+            return cls(basename)
         except KeyError as e:
             raise RuntimeError(f"Basename {basename} not recognized.", e)
