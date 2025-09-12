@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `_datatype.DATATYPE_PROPERTIES`
 - Rename `_datatype.storage_dtypes` to `_datatype.StorageDType` (PEP8)
 - Capitalise `DataType` members (PEP8)
+- Capitalise `VoxelUnit` members (PEP8)
 - Move zarr and netcdf dependencies to extras
 - Improve `tox` testing configuration, including testing with and without extras
 - Update changelog formatting to better match the Keep a Changelog format.
@@ -33,6 +34,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Remove features which were deprecated in 0.2.0:
   - NetCDFDataset
   - Xarray dataset support
+- Remove `UnknownVoxelUnitException`
 
 ## [0.2.0] - 2025-09-07
 

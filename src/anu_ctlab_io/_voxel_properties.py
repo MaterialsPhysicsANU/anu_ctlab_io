@@ -1,21 +1,17 @@
-from enum import Enum, auto
+from enum import StrEnum
 from typing import Any
 
 
-class UnknownVoxelUnitException(Exception):
-    pass
-
-
-class VoxelUnit(Enum):
+class VoxelUnit(StrEnum):
     """The unit of size of a voxel."""
 
-    m = auto()
-    cm = auto()
-    mm = auto()
-    um = auto()
-    nm = auto()
-    angstrom = auto()
-    voxel = auto()
+    M = "m"
+    CM = "cm"
+    MM = "mm"
+    UM = "um"
+    NM = "nm"
+    ANGSTROM = "angstrom"
+    VOXEL = "voxel"
 
     @classmethod
     def from_str(cls, string: str) -> "VoxelUnit":
@@ -24,41 +20,35 @@ class VoxelUnit(Enum):
         Accepts a wide range of standard representations of each unit, and is case insensitive."""
         units_lut: dict[str, VoxelUnit] = {
             # short names
-            "m": cls.m,
-            "cm": cls.cm,
-            "mm": cls.mm,
-            "um": cls.um,
-            "nm": cls.nm,
-            "a": cls.angstrom,
+            "m": cls.M,
+            "cm": cls.CM,
+            "mm": cls.MM,
+            "um": cls.UM,
+            "nm": cls.NM,
+            "a": cls.ANGSTROM,
             # long names
-            "meter": cls.m,
-            "centimeter": cls.cm,
-            "millimeter": cls.mm,
-            "micrometer": cls.um,
-            "nanometer": cls.nm,
-            "angstrom": cls.angstrom,
-            "voxel": cls.voxel,
+            "meter": cls.M,
+            "centimeter": cls.CM,
+            "millimeter": cls.MM,
+            "micrometer": cls.UM,
+            "nanometer": cls.NM,
+            "angstrom": cls.ANGSTROM,
+            "voxel": cls.VOXEL,
             # alternative symbols
-            "µm": cls.um,
-            "å": cls.angstrom,
-            "au": cls.angstrom,
-            "a.u.": cls.angstrom,
+            "µm": cls.UM,
+            "å": cls.ANGSTROM,
+            "au": cls.ANGSTROM,
+            "a.u.": cls.ANGSTROM,
         }
         try:
             return units_lut[string.lower()]
         except KeyError as e:
-            raise UnknownVoxelUnitException(f"Unknown VoxelUnit {string}", e) from e
+            raise ValueError(f"Unknown VoxelUnit {string}", e) from e
 
     def __eq__(self, item: Any) -> bool:
         if isinstance(item, str):
-            try:
-                return self == VoxelUnit.from_str(item)
-            except UnknownVoxelUnitException:
-                return False
+            return self.value == item
         if isinstance(item, VoxelUnit):
-            return item._value_ == self._value_
+            return self.value == item.value
         else:
             return False
-
-    def __str__(self) -> str:
-        return self._name_
