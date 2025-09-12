@@ -8,6 +8,8 @@ from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
+__all__ = ["dataset_from_zarr"]
+
 
 def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
     try:
