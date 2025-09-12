@@ -24,9 +24,9 @@ default-optional-dependency-keys = [
 license = "MIT"
 license-files = ["LICENSE.md"]
 authors = [
+    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
     {name = "Bogdan Maviichuk", email = "bogdan.maviichuk@anu.edu.au"},
     {name = "Lachlan Deakin", email = "lachlan.deakin@anu.edu.au"},
-    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
 ]
 maintainers = [
     {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
