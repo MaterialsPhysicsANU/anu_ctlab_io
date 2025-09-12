@@ -49,17 +49,17 @@ class DataType(Enum):
     When needed, :any:`DataType`\\ s should be constructed via either the :any:`infer_from_path` or
     the :any:`from_basename` classmethods."""
 
-    _PROJU16 = "proju16"
-    _PROJF32 = "projf32"
+    PROJU16 = "proju16"
+    PROJF32 = "projf32"
     # tomo_float is above tomo, to ensure it is checked first when iterating over DataType
-    _TOMO_FLOAT = "tomo_float"
-    _TOMO = "tomo"
-    _FLOAT16 = "float16"
-    _FLOAT64 = "float64"
-    _SEGMENTED = "segmented"
-    _DISTANCE_MAP = "distance_map"
-    _LABELS = "labels"
-    _RGBA8 = "rgba8"
+    TOMO_FLOAT = "tomo_float"
+    TOMO = "tomo"
+    FLOAT16 = "float16"
+    FLOAT64 = "float64"
+    SEGMENTED = "segmented"
+    DISTANCE_MAP = "distance_map"
+    LABELS = "labels"
+    RGBA8 = "rgba8"
 
     def __str__(self) -> str:
         return self.value
