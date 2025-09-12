@@ -3,28 +3,37 @@ name: publish
 on: workflow_dispatch
 
 jobs:
-  testpypi-publish:
-    name: "build and publish release"
+  build:
     runs-on: ubuntu-latest
-    environment: testpypi
-    permissions:
-      id-token: write
-
     steps:
-      - uses: actions/checkout@v4
-
-      - name: install uv
-        uses: astral-sh/setup-uv@v3
+      - uses: actions/checkout@v5
+      - name: Install UV
+        uses: astral-sh/setup-uv@v6
         with:
           version: "0.6.3"
-
-      - name: setup python
-        run: uv python install `cat .python-version`
-
-      - name: build package
+      - name: Build source distribution
         run: uv build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: test-pypi-files-sdist
+          path: dist
 
-      - name: Publish package distributions to PyPI
+  testpypi-publish:
+    name: "build and publish release"
+    needs: [build]
+    runs-on: ubuntu-latest
+    environment:
+      name: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          pattern: test-pypi-files-*
+          merge-multiple: true
+          path: dist/
+      - run: ls -lh dist/
+      - name: Publish package distributions to TestPyPI
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           repository-url: https://test.pypi.org/legacy/
