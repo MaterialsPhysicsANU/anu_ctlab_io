@@ -44,10 +44,6 @@ class AbstractDataset(ABC):
         pass
 
 
-class DatasetFormatException(Exception):
-    pass
-
-
 class Dataset(AbstractDataset):
     """A :any:`Dataset`, containing the data and metadata read from one of the ANU CTLab file formats.
 
@@ -148,7 +144,7 @@ class Dataset(AbstractDataset):
                     )
 
         raise (
-            DatasetFormatException(
+            ValueError(
                 "Unable to construct Dataset from given `path`, perhaps specify `filetype`?",
                 path,
             )
