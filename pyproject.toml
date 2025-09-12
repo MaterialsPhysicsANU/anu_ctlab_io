@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anu-ctlab-io"
-version = "0.2.0"
+version = "1.0.0"
 description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.rst"
 requires-python = ">=3.12"
@@ -45,7 +45,7 @@ zarr = [
 # FIXME: Add Homepage on v1.0.0 release
 Repository = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io"
 Issues = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/issues"
-Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/master/CHANGELOG.md"
+Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/main/CHANGELOG.md"
 
 [dependency-groups]
 dev = [

@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2025-09-12
+
 ### Added
 
+- Github CI for build and release to PyPI
 - Documentation using Sphinx
 - justfile to build docs and run tests
 - Support for units to `VoxelUnit` to match MANGO support: `angstrom`, `centimeters`, `voxels`
@@ -57,5 +60,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for reading ANU CTLab NetCDF files
 - Support for outputting Xarray data
 
-[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v0.2.0...HEAD
+[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.0
 [0.2.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v0.2.0
