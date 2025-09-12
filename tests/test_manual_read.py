@@ -5,7 +5,7 @@ import pytest
 import xarray as xr
 
 _HAS_ZARR = importlib.util.find_spec("zarr")
-_HAS_NETCDF4 = importlib.util.find_spec("netcdf4")
+_HAS_NETCDF4 = importlib.util.find_spec("netCDF4")
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
