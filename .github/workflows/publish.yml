@@ -1,0 +1,28 @@
+name: "publish"
+
+jobs:
+  testpypi-publish:
+    name: "build and publish release"
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          version: "0.6.3"
+
+      - name: setup python
+        run: uv python install `cat .python-version`
+
+      - name: build package
+        run: uv build
+
+      - name: Publish package distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
