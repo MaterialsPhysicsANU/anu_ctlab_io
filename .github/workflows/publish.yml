@@ -1,6 +1,9 @@
 name: publish
 
-on: workflow_dispatch
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   build:
@@ -15,25 +18,23 @@ jobs:
         run: uv build
       - uses: actions/upload-artifact@v4
         with:
-          name: test-pypi-files-sdist
+          name: pypi-files-sdist
           path: dist
 
-  testpypi-publish:
+  pypi-publish:
     name: "build and publish release"
     needs: [build]
     runs-on: ubuntu-latest
     environment:
-      name: testpypi
+      name: pypi
     permissions:
       id-token: write
     steps:
       - uses: actions/download-artifact@v5
         with:
-          pattern: test-pypi-files-*
+          pattern: pypi-files-*
           merge-multiple: true
           path: dist/
       - run: ls -lh dist/
-      - name: Publish package distributions to TestPyPI
+      - name: Publish package distributions to PyPI
         uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          repository-url: https://test.pypi.org/legacy/
