@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Privatise objects not intended to be public:
   - `_datatype.DataTypeProperties`
   - `_datatype.DATATYPE_PROPERTIES`
+  - `netcdf._read_netcdf`
 - Rename `_datatype.storage_dtypes` to `_datatype.StorageDType` (PEP8)
 - Capitalise `DataType` members (PEP8)
 - Capitalise `VoxelUnit` members (PEP8)

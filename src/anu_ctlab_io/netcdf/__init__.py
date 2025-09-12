@@ -17,14 +17,14 @@ if (
 ):
     raise ImportError("Neither netCDF4 nor h5netcdf could be imported.")
 
-__all__ = ["NetCDFDataset", "dataset_from_netcdf"]
+__all__ = ["dataset_from_netcdf"]
 
 
 def dataset_from_netcdf(
     path: Path, *, parse_history: bool = True, **kwargs: Any
 ) -> Dataset:
     datatype = DataType.infer_from_path(path)
-    dataset = read_netcdf(path, datatype, **kwargs)
+    dataset = _read_netcdf(path, datatype, **kwargs)
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))
     dataset["data"] = dataset.data.astype(datatype.dtype)
     dataset.attrs = _update_attrs(dataset.attrs, parse_history)
@@ -67,7 +67,7 @@ def _update_attrs(attrs: dict[str, Any], parse_history_p: bool) -> dict[str, Any
     return new_attrs
 
 
-def read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Dataset:
+def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Dataset:
     path = os.path.normpath(os.path.expanduser(path))
     if os.path.isdir(path):
         possible_files = [os.path.join(path, p) for p in os.listdir(path)]
