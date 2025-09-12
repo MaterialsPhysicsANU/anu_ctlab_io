@@ -1,8 +1,8 @@
-from enum import StrEnum
+from enum import Enum
 from typing import Any
 
 
-class VoxelUnit(StrEnum):
+class VoxelUnit(Enum):
     """The unit of size of a voxel."""
 
     M = "m"
