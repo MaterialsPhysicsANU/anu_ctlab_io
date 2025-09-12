@@ -13,5 +13,3 @@ anu_ctlab_io package
    :recursive:
 
    anu_ctlab_io
-
-
