@@ -1,9 +1,5 @@
-#!/usr/bin/env python3
-import warnings
-
 import numpy as np
 import pytest
-import xarray as xr
 
 try:
     import anu_ctlab_io.netcdf
