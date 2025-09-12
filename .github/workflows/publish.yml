@@ -1,5 +1,6 @@
 name: "publish"
-  on: workflow_dispatch
+
+on: workflow_dispatch
 
 jobs:
   testpypi-publish:
