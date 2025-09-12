@@ -56,13 +56,6 @@ class Dataset(AbstractDataset):
 
     The initializer of this class should only be used when manually constructing a :any:`Dataset`, which is not
     the primary usage of this library.
-
-    :param data: The data contained in the :any:`Dataset`.
-    :param dimension_names: The names of the dimensions of the :any:`Dataset`.
-    :param voxel_unit: The unit the `voxel_size` is in terms of.
-    :param voxel_size: The size of each voxel in the :any:`Dataset`.
-    :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
-    :param history: The history of the :any:`Dataset`.
     """
 
     _data: da.Array
@@ -81,6 +74,16 @@ class Dataset(AbstractDataset):
         datatype: DataType,
         history: dict[str, Any],
     ) -> None:
+        """
+        Manually constructs a :any:`Dataset`.
+
+        :param data: The data contained in the :any:`Dataset`.
+        :param dimension_names: The names of the dimensions of the :any:`Dataset`.
+        :param voxel_unit: The unit the `voxel_size` is in terms of.
+        :param voxel_size: The size of each voxel in the :any:`Dataset`.
+        :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
+        :param history: The history of the :any:`Dataset`.
+        """
         self._data = data
         self._dimension_names = dimension_names
         self._datatype = datatype

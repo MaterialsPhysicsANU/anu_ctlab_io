@@ -26,4 +26,5 @@ autodoc_default_options = {
     "member-order": "bysource",
     "show-inheritance": True,
     "inherited-members": True,
+    "special-members": "__init__",
 }
