@@ -72,7 +72,7 @@ class Dataset(AbstractDataset):
         voxel_unit: VoxelUnit,
         voxel_size: tuple[np.float32, np.float32, np.float32],
         datatype: DataType,
-        history: dict[str, Any],
+        history: dict[str, Any] | None = None,
     ) -> None:
         """
         Manually constructs a :any:`Dataset`.
@@ -84,6 +84,9 @@ class Dataset(AbstractDataset):
         :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
         :param history: The history of the :any:`Dataset`.
         """
+        if history is None:
+            history = {}
+
         self._data = data
         self._dimension_names = dimension_names
         self._datatype = datatype
