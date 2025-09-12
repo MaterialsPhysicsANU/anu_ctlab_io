@@ -12,26 +12,26 @@ class VoxelUnit(Enum):
     TODO: double check mango supported units
     """
 
-    _m = auto()
-    _mm = auto()
-    _um = auto()
-    _nm = auto()
+    m = auto()
+    mm = auto()
+    um = auto()
+    nm = auto()
 
     @classmethod
     def from_str(cls, string: str) -> "VoxelUnit":
         units_lut: dict[str, VoxelUnit] = {
             # short names
-            "m": cls._m,
-            "mm": cls._mm,
-            "um": cls._um,
-            "nm": cls._nm,
+            "m": cls.m,
+            "mm": cls.mm,
+            "um": cls.um,
+            "nm": cls.nm,
             # long names
-            "meter": cls._m,
-            "millimeter": cls._mm,
-            "micrometer": cls._um,
-            "nanometer": cls._nm,
+            "meter": cls.m,
+            "millimeter": cls.mm,
+            "micrometer": cls.um,
+            "nanometer": cls.nm,
             # alternative symbols
-            "µm": cls._um,
+            "µm": cls.um,
         }
         try:
             return units_lut[string]
@@ -50,4 +50,4 @@ class VoxelUnit(Enum):
             return False
 
     def __str__(self) -> str:
-        return self._name_[1:]
+        return self._name_
