@@ -7,19 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Documentation using Sphinx
+- justfile to build docs and run tests
+- Support for units to `VoxelUnit` to match MANGO support: `angstrom`, `centimeters`, `voxels`
+- Tests for `DataType.from_basename`
+
 ### Changed
 
-- Rename `datatype.storage_dtypes` to `datatype.StorageDType` (PEP8)
+- Replace README.md with README.rst
+- Improve typehinting
+- Privatise unintentionally public modules: `dataset`, `datatype`, `parse_history`, `version`, `voxel_properties`
+- Privatise objects not intended to be public:
+  - `_datatype.DataTypeProperties`
+  - `_datatype.DATATYPE_PROPERTIES`
+- Rename `_datatype.storage_dtypes` to `_datatype.StorageDType` (PEP8)
 - Capitalise `DataType` members (PEP8)
+- Move zarr and netcdf dependencies to extras
+- Improve `tox` testing configuration, including testing with and without extras
+- Update changelog formatting to better match the Keep a Changelog format.
 
 ### Removed
 
-- Remove items not intended to be public:
-- Remove unintentionally public modules: `dataset`, `datatype`, `parse_history`, `version`, `voxel_properties`
-  - `datatype.DataTypeProperties`
-  - `datatype.DATATYPE_PROPERTIES`
+- Remove features which were deprecated in 0.2.0:
+  - NetCDFDataset
+  - Xarray dataset support
 
-## [0.2.0]
+## [0.2.0] - 2025-09-07
 
 ### Added
 
@@ -31,7 +46,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Interface changed to use the Dataset class for both Zarr and NetCDF files
 - Xarray output deprecated (to be removed in 1.0.0)
 
-## 0.0.1
+## [0.0.1]
 
 ### Added
 
