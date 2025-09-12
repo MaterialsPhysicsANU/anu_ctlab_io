@@ -20,7 +20,9 @@ if (
 __all__ = ["NetCDFDataset", "dataset_from_netcdf"]
 
 
-def dataset_from_netcdf(path: Path, *, parse_history: bool, **kwargs: Any) -> Dataset:
+def dataset_from_netcdf(
+    path: Path, *, parse_history: bool = True, **kwargs: Any
+) -> Dataset:
     datatype = DataType.infer_from_path(path)
     dataset = read_netcdf(path, datatype, **kwargs)
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))
