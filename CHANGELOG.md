@@ -35,6 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - NetCDFDataset
   - Xarray dataset support
 - Remove `UnknownVoxelUnitException`
+- Remove `DatasetFormatException`
 
 ## [0.2.0] - 2025-09-07
 
