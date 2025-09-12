@@ -45,9 +45,6 @@ class VoxelUnit(Enum):
         except KeyError as e:
             raise ValueError(f"Unknown VoxelUnit {string}", e) from e
 
-    def __str__(self) -> str:
-        return self.value
-
     def __eq__(self, item: Any) -> bool:
         if isinstance(item, str):
             return self.value == item
@@ -55,3 +52,6 @@ class VoxelUnit(Enum):
             return self.value == item.value
         else:
             return False
+
+    def __str__(self) -> str:
+        return self.value
