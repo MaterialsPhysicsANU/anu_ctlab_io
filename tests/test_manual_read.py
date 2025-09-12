@@ -1,10 +1,12 @@
-import xarray as xr
+import importlib.util
+
 import numpy as np
 import pytest
-import importlib.util
+import xarray as xr
 
 _HAS_ZARR = importlib.util.find_spec("zarr")
 _HAS_NETCDF4 = importlib.util.find_spec("netcdf4")
+
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_manual_read_netcdf_single():

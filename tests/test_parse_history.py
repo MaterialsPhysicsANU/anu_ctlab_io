@@ -1,13 +1,15 @@
 #!/usr/bin/env python
-from pprint import pp
 import re
+from pprint import pp
+
 import pytest
 
-from anu_ctlab_io._parse_history import parse_history
 import anu_ctlab_io
+from anu_ctlab_io._parse_history import parse_history
 
 try:
     import anu_ctlab_io.netcdf
+
     _HAS_NETCDF = True
 except ImportError:
     _HAS_NETCDF = False

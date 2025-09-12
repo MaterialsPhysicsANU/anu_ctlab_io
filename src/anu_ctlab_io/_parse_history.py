@@ -1,6 +1,7 @@
-#!/usr/bin/env python
 import re
-from lark import Lark, Transformer
+
+from lark import Lark, Token, Transformer
+from lark.tree import Branch
 
 _history_parser = Lark(
     r"""
@@ -27,30 +28,46 @@ _history_parser = Lark(
     parser="earley",
 )
 
+type KVPairs = dict[Token, Token | None]
+type Section = dict[Token, SectionContents]
+type SectionContents = dict[Token, Token | SectionContents | None]
+type History = dict[Token, KVPairs | Section | None]
 
-class _HistoryTransformer(Transformer):
-    def kv_pair(self, tree):
-        return {tree[0].value: None if not tree[1] else tree[1].value}
 
-    def section(self, tree):
-        return {tree[0].value: tree[1]}
+class _HistoryTransformer(Transformer[Token, History]):
+    def kv_pair(self, tree: list[Branch[Token]]) -> KVPairs:
+        assert isinstance(tree[0], Token)
+        assert isinstance(tree[1], Token | None)
+        return {tree[0]: tree[1]}
 
-    def section_header(self, tree):
-        return tree[0].value
+    def section(self, tree: list[Branch[Token] | SectionContents]) -> Section:
+        assert isinstance(tree[0], Token)
+        assert isinstance(tree[1], dict)  # KVPairs
+        return {tree[0]: tree[1]}
 
-    def section_contents(self, tree):
-        d = {}
+    def section_header(self, tree: list[Branch[Token]]) -> Token:
+        assert isinstance(tree[0], Token)
+        return tree[0]
+
+    def section_contents(self, tree: list[KVPairs | Section]) -> SectionContents:
+        d: SectionContents = {}
         for i in tree:
             d |= i
         return d
 
 
-def parse_history(history):
+def parse_history(history: str) -> History | str:
     if re.match(r"\n*([^\n\r])+:\s+([^\n]+)", history):
         try:
             lines = history.strip().split("\n")
-            ks, vs = zip(*map(lambda x: x.split(":", 1), lines))
-            return dict(zip(map(lambda x: x.strip(), ks), map(lambda x: x.strip(), vs)))
+            ks, vs = zip(*map(lambda x: x.split(":", 1), lines), strict=True)
+            return dict(
+                zip(
+                    map(lambda x: x.strip(), ks),
+                    map(lambda x: x.strip(), vs),
+                    strict=True,
+                )
+            )
         except ValueError:
             return history
     else:

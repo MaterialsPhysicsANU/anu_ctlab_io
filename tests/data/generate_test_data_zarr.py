@@ -7,9 +7,10 @@
 # ]
 # ///
 
-import zarr
-import numpy as np
 import json
+
+import numpy as np
+import zarr
 
 chunk_key_encoding = {"name": "default", "separator": "."}
 schema_example = "../schema/anu_ctlab_zarr_1_0_example.json"
