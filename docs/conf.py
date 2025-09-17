@@ -6,25 +6,15 @@ copyright = "2025, the Australian National University (ANU)"
 author = "Materials Physics, ANU"  # Can only be a single author, so can't match pyproject.toml. Find actual authors there.
 release = importlib.metadata.version("anu_ctlab_io")
 extensions = [
-    # 'myst_parser',
     "sphinx_rtd_theme",
-    "sphinx.ext.autodoc",
-    # "sphinx.ext.napoleon",
-    "sphinx.ext.autosummary",
+    "autoapi.extension",
     "sphinx_autodoc_typehints",
 ]
 html_theme = "sphinx_rtd_theme"
-autosummary_generate = True
 source_suffix = {
-    # '.md': 'markdown',
     ".rst": "restructuredtext",
 }
-exclude_patterns = ["_build", "Thumbs.db", ".DS_Store"]
-autodoc_default_options = {
-    "members": True,
-    "undoc-members": True,
-    "member-order": "bysource",
-    "show-inheritance": True,
-    "inherited-members": True,
-    "special-members": "__init__",
-}
+autoapi_dirs = ["../src/anu_ctlab_io"]
+autoapi_options = ["members", "undoc-members", "show-inheritance", "imported-members"]
+autodoc_typehints = "description"
+exclude_patterns = ["autoapi/index.rst"]

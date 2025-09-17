@@ -42,10 +42,10 @@ zarr = [
 ]
 
 [project.urls]
-# FIXME: Add Homepage on v1.0.0 release
 Repository = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io"
 Issues = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/issues"
 Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/blob/main/CHANGELOG.md"
+Documentation = "https://anu-ctlab-io.readthedocs.io"
 
 [dependency-groups]
 dev = [
@@ -57,6 +57,7 @@ docs = [
     "sphinx>=8.2.3",
     "sphinx-rtd-theme>=3.0.2",
     "sphinx-autodoc-typehints>=3.2.0",
+    "sphinx-autoapi>=3.6.0",
 ]
 
 [tool.pytest.ini_options]
