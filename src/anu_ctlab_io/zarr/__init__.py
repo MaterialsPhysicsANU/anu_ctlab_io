@@ -64,6 +64,10 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
 
         voxel_size = multiscale["datasets"][0]["coordinateTransformations"][0]["scale"]
+        if len(voxel_size) != 3:
+            raise ValueError(
+                f"Provided zarr has {len(voxel_size)} voxel sizes provided, should have 3."
+            ) from None
 
     return Dataset(
         data=data,
