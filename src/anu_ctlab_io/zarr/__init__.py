@@ -44,10 +44,23 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit_list: tuple[str, ...] = tuple(
             [x["unit"] for x in multiscale["axes"]]
         )
-        assert (
+
+        if len(dimension_names) != 3:
+            raise ValueError(
+                f"Provided zarr has {len(dimension_names)} dimension names, should have 3."
+            ) from None
+        if len(voxel_unit_list) != 3:
+            raise ValueError(
+                f"Provided zarr has {len(voxel_unit_list)} units provided, should have 3."
+            ) from None
+        if not (
             voxel_unit_list[0] == voxel_unit_list[1]
             and voxel_unit_list[1] == voxel_unit_list[2]
-        )  # we only use one unit, so this must hold
+        ):
+            raise ValueError(
+                f"Provided zarr has differing units {voxel_unit_list}, these should all be equal."
+            ) from None
+
         voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
 
         voxel_size = multiscale["datasets"][0]["coordinateTransformations"][0]["scale"]
