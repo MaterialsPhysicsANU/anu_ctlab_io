@@ -1,3 +1,7 @@
+"""Read data from the ANU CTLab netcdf data format.
+
+This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[netcdf]``)."""
+
 import importlib.util
 import os
 import re
@@ -23,6 +27,14 @@ __all__ = ["dataset_from_netcdf"]
 def dataset_from_netcdf(
     path: Path, *, parse_history: bool = True, **kwargs: Any
 ) -> Dataset:
+    """Loads a :any:`Dataset` from the path to a netcdf.
+
+    This method is used by :any:`Dataset.from_path`, by preference call that constructor directly.
+
+    :param Path: The path to the netcdf or directory of split netcdf blocks to be loaded.
+    :param parse_history: Whether to parse the history of the netcdf file. Defaults to ``True``, but disableable because the parser is currently not guaranteed to succeed.
+    :param kwargs: Currently this method consumes no kwargs, but will pass provided kwargs to ``Xarray.open_mfdataset``.
+    :raises lark.exceptions.UnexpectedInput: Raised if ``parse_history=True`` and the parser fails to parse the specific history provided."""
     datatype = DataType.infer_from_path(path)
     dataset = _read_netcdf(path, datatype, **kwargs)
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))

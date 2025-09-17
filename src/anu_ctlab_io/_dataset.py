@@ -48,7 +48,8 @@ class Dataset(AbstractDataset):
     """A :any:`Dataset`, containing the data and metadata read from one of the ANU CTLab file formats.
 
     :any:`Dataset`\\ s are the primary interface to the :py:mod:`anu_ctlab_io` package, and should generally be
-    constructed by users via the :any:`Dataset.from_path` classmethod.
+    constructed by users via the :any:`Dataset.from_path` classmethod. Note that the relevant extra (:any:`netcdf` or :any:`zarr`)
+    must be installed.
 
     The initializer of this class should only be used when manually constructing a :any:`Dataset`, which is not
     the primary usage of this library.
@@ -110,7 +111,7 @@ class Dataset(AbstractDataset):
     ) -> "Dataset":
         """Creates a :any:`Dataset` from the data at the given ``path``.
 
-        The data at ``path`` must be in one of the ANU mass data storage formats, and the optional dependencies required for the specific
+        The data at ``path`` must be in one of the ANU mass data storage formats, and the optional extras required for the specific
         file format must be installed.
 
         :param path: The ``path`` to read data from.

@@ -19,7 +19,7 @@ dependencies = [
 default-optional-dependency-keys = [
     "netcdf",
     "zarr",
-]
+] # currently does nothing, but if/when PEP-771 is accepted this is the config we want.
 
 license = "MIT"
 license-files = ["LICENSE.md"]

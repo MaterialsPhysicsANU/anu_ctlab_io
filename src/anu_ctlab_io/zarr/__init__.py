@@ -1,3 +1,7 @@
+"""Read data from the ANU CTLab zarr data format.
+
+This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[zarr]``)."""
+
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +16,12 @@ __all__ = ["dataset_from_zarr"]
 
 
 def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
+    """Loads a :any:`Dataset` from the path to a zarr.
+
+    This method is used by :any:`Dataset.from_path`, by preference call that constructor directly.
+
+    :param Path: The path to the zarr to be loaded
+    :param kwargs: Currently this method consumes no kwargs, but will pass provided kwargs to ``dask.Array.from_path``."""
     try:
         data: da.Array = da.from_zarr(path, **kwargs)  # type: ignore[no-untyped-call]
         za = zarr.open_array(

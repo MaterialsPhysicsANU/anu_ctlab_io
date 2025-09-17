@@ -17,4 +17,3 @@ source_suffix = {
 autoapi_dirs = ["../src/anu_ctlab_io"]
 autoapi_options = ["members", "undoc-members", "show-inheritance", "imported-members"]
 autodoc_typehints = "description"
-exclude_patterns = ["autoapi/index.rst"]
