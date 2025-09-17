@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Self
 
 import numpy as np
+from numpy.typing import DTypeLike
 
 __all__ = ["StorageDType", "DataType"]
 
@@ -21,8 +22,8 @@ class _DataTypeProperties:
     """
 
     discrete: bool
-    dtype: type
-    dtype_uncorrected: type
+    dtype: DTypeLike
+    dtype_uncorrected: DTypeLike
     mask_value: int | float | None
 
 
@@ -70,7 +71,7 @@ class DataType(Enum):
         return _DATATYPE_PROPERTIES[str(self)].discrete
 
     @property
-    def dtype(self) -> type:
+    def dtype(self) -> DTypeLike:
         """The numpy ``dtype`` appropriate for storing data of the :any:`DataType`.
 
         Because of a historical decision in MANGO, the datatype listed in ANU CTLab NetCDFs is not
@@ -81,7 +82,7 @@ class DataType(Enum):
         return _DATATYPE_PROPERTIES[str(self)].dtype
 
     @property
-    def _dtype_uncorrected(self) -> type:
+    def _dtype_uncorrected(self) -> DTypeLike:
         return _DATATYPE_PROPERTIES[str(self)].dtype_uncorrected
 
     def _mask_value(self, uncorrected: bool = False) -> StorageDType | None:
@@ -90,6 +91,7 @@ class DataType(Enum):
             return None
 
         dtype = props.dtype_uncorrected if uncorrected else props.dtype
+        assert callable(dtype)
         val: StorageDType = dtype(props.mask_value)
         return val
 
