@@ -1,3 +1,7 @@
+"""
+python I/O for the ANU CTLab array storage format(s).
+"""
+
 from contextlib import suppress
 
 from anu_ctlab_io._dataset import Dataset

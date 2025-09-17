@@ -1,15 +1,7 @@
-anu_ctlab_io package
-====================
+.. include:: introduction.rst
+
 .. toctree::
+   :hidden:
+
    introduction
-
-.. .. automodule:: anu_ctlab_io
-..     :members:
-..     :undoc-members:
-..     :show-inheritance:
-
-.. autosummary::
-   :toctree: _autosummary
-   :recursive:
-
-   anu_ctlab_io
+   autoapi/index
