@@ -3,5 +3,5 @@
 .. toctree::
    :hidden:
 
-   introduction
+   self
    autoapi/index
