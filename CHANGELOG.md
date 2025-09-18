@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.1] - 2025-09-18
+
+### Added
+
+- Github CI caching
+- Readthedocs configuration
+- References to extras in documentation
+
+### Changed
+
+- Improved typing of DataType dtype
+- Improved validation of zarr ome inputs
+- Moved from sphinx autogen and autosummary to autoapi
+- Fixed link to changelog in pyproject.toml
+
 ## [1.0.0] - 2025-09-12
 
 ### Added
@@ -60,6 +75,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for reading ANU CTLab NetCDF files
 - Support for outputting Xarray data
 
-[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.0.0...HEAD
+[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.0
 [0.2.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v0.2.0
