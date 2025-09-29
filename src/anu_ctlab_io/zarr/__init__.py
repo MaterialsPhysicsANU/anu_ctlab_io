@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 import dask.array as da
+import numpy as np
 import zarr
 
 from anu_ctlab_io._dataset import Dataset
@@ -63,7 +64,20 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
 
         voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
 
-        voxel_size = multiscale["datasets"][0]["coordinateTransformations"][0]["scale"]
+        # Calculate the voxel size from the transformations
+        # TODO: Use an OME-Zarr library and comprehensively apply the transformations to get the voxel size
+        try:
+            voxel_size_dataset = multiscale["datasets"][0]["coordinateTransformations"][
+                0
+            ]["scale"]
+        except KeyError:
+            voxel_size_dataset = [1.0, 1.0, 1.0]
+        try:
+            voxel_size_root = multiscale["coordinateTransformations"][0]["scale"]
+        except KeyError:
+            voxel_size_root = [1.0, 1.0, 1.0]
+        voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
+
         if len(voxel_size) != 3:
             raise ValueError(
                 f"Provided zarr has {len(voxel_size)} voxel sizes provided, should have 3."
