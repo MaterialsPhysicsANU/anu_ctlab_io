@@ -70,11 +70,11 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
             voxel_size_dataset = multiscale["datasets"][0]["coordinateTransformations"][
                 0
             ]["scale"]
-        except KeyError:
+        except (KeyError, IndexError):
             voxel_size_dataset = [1.0, 1.0, 1.0]
         try:
             voxel_size_root = multiscale["coordinateTransformations"][0]["scale"]
-        except KeyError:
+        except (KeyError, IndexError):
             voxel_size_root = [1.0, 1.0, 1.0]
         voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
 
