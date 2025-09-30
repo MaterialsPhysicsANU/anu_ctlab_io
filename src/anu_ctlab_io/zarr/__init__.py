@@ -74,7 +74,10 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit_list: tuple[str | None, ...] = tuple(
             [_cast_unit(axis.unit) for axis in multiscale.axes]
         )
-        if len(set(voxel_unit_list)) != 1:
+        if not (
+            voxel_unit_list[0] == voxel_unit_list[1]
+            and voxel_unit_list[1] == voxel_unit_list[2]
+        ):
             raise ValueError(
                 f"Provided zarr has differing units {voxel_unit_list}, these should all be equal."
             ) from None
@@ -105,14 +108,6 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
 
         voxel_size_dataset = extract_vector_scale(dataset.coordinateTransformations)
         voxel_size_root = extract_vector_scale(multiscale.coordinateTransformations)
-        if len(voxel_size_dataset) != 3:
-            raise ValueError(
-                f"OME-Zarr dataset coordinate transform scale {len(voxel_size_dataset)} should have 3 dimensions."
-            ) from None
-        if len(voxel_size_root) != 3:
-            raise ValueError(
-                f"OME-Zarr root coordinate transform scale {len(voxel_size_root)} should have 3 dimensions."
-            ) from None
         voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
 
     return Dataset(
