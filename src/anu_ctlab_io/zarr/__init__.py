@@ -8,6 +8,9 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
+from ome_zarr_models.common.coordinate_transformations import VectorScale
+from ome_zarr_models.common.multiscales import ValidTransform
+from ome_zarr_models.v05.image import Image
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -36,52 +39,81 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
 
     except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
         zg = zarr.open_group(path, zarr_format=3)
-        multiscale = zg.metadata.attributes["ome"]["multiscales"][0]
-        component_path = multiscale["datasets"][0]["path"]
-        data = da.from_zarr(path, component=component_path, **kwargs)  # type: ignore[no-untyped-call]
+        ome = Image.from_zarr(zg)
+        multiscales = ome.ome_attributes.multiscales
+        if len(multiscales) > 1:
+            raise NotImplementedError(
+                "Only single multiscale images are currently supported."
+            ) from None
+
+        # Extract the first multiscale and first dataset
+        # These are guaranteed to exist by ome_zarr_metadata validation
+        # Assumes the first dataset is the full resolution one
+        multiscale = multiscales[0]
+        dataset = multiscale.datasets[0]
+        data = da.from_zarr(path, component=dataset.path, **kwargs)  # type: ignore[no-untyped-call]
         attrs = dict(zg.attrs)["mango"]  # type: ignore[assignment]
         datatype = DataType.from_basename(attrs["basename"])
-        dimension_names = tuple([x["name"] for x in multiscale["axes"]])
-        voxel_unit_list: tuple[str, ...] = tuple(
-            [x["unit"] for x in multiscale["axes"]]
-        )
 
-        if len(dimension_names) != 3:
+        if len(multiscale.axes) != 3:
             raise ValueError(
-                f"Provided zarr has {len(dimension_names)} dimension names, should have 3."
+                f"Provided zarr has {len(multiscale.axes)} axes, should have 3."
             ) from None
-        if len(voxel_unit_list) != 3:
-            raise ValueError(
-                f"Provided zarr has {len(voxel_unit_list)} units provided, should have 3."
-            ) from None
-        if not (
-            voxel_unit_list[0] == voxel_unit_list[1]
-            and voxel_unit_list[1] == voxel_unit_list[2]
-        ):
+
+        dimension_names = tuple(
+            [str(axis.name) for axis in multiscale.axes]
+        )  # NOTE: str cast needed due to a mismatch in ome_zarr_models with the ome_zarr spec
+
+        def _cast_unit(unit: str | Any | None) -> str | None:
+            if unit is None:
+                return None
+            if isinstance(unit, str):
+                return unit
+            raise ValueError(f"Unsupported unit type: {unit}")
+
+        voxel_unit_list: tuple[str | None, ...] = tuple(
+            [_cast_unit(axis.unit) for axis in multiscale.axes]
+        )
+        if len(set(voxel_unit_list)) != 1:
             raise ValueError(
                 f"Provided zarr has differing units {voxel_unit_list}, these should all be equal."
             ) from None
-
-        voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
+        if voxel_unit_list[0] is None:
+            voxel_unit = VoxelUnit.VOXEL
+        else:
+            voxel_unit = VoxelUnit.from_str(voxel_unit_list[0])
 
         # Calculate the voxel size from the transformations
-        # TODO: Use an OME-Zarr library and comprehensively apply the transformations to get the voxel size
-        try:
-            voxel_size_dataset = multiscale["datasets"][0]["coordinateTransformations"][
-                0
-            ]["scale"]
-        except (KeyError, IndexError):
-            voxel_size_dataset = [1.0, 1.0, 1.0]
-        try:
-            voxel_size_root = multiscale["coordinateTransformations"][0]["scale"]
-        except (KeyError, IndexError):
-            voxel_size_root = [1.0, 1.0, 1.0]
-        voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
+        def extract_vector_scale(
+            transformations: ValidTransform | None,
+        ) -> tuple[float, float, float]:
+            """Extracts the scale from a list of coordinate transformations, expects VectorScale."""
+            if transformations and len(transformations) > 0:
+                scale_transform = transformations[0]
+                if isinstance(scale_transform, VectorScale):
+                    scale = scale_transform.scale
+                    if len(scale) != 3:
+                        raise ValueError(
+                            f"Provided zarr has {len(scale)} scale factors provided, should have 3."
+                        ) from None
+                    return (scale[0], scale[1], scale[2])
+                else:
+                    raise NotImplementedError(
+                        "Only vector scales are currently supported for coordinate transformations."
+                    ) from None
+            return (1.0, 1.0, 1.0)
 
-        if len(voxel_size) != 3:
+        voxel_size_dataset = extract_vector_scale(dataset.coordinateTransformations)
+        voxel_size_root = extract_vector_scale(multiscale.coordinateTransformations)
+        if len(voxel_size_dataset) != 3:
             raise ValueError(
-                f"Provided zarr has {len(voxel_size)} voxel sizes provided, should have 3."
+                f"OME-Zarr dataset coordinate transform scale {len(voxel_size_dataset)} should have 3 dimensions."
             ) from None
+        if len(voxel_size_root) != 3:
+            raise ValueError(
+                f"OME-Zarr root coordinate transform scale {len(voxel_size_root)} should have 3 dimensions."
+            ) from None
+        voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
 
     return Dataset(
         data=data,

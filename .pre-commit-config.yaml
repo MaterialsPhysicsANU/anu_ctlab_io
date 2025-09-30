@@ -39,6 +39,7 @@ repos:
           - matplotlib
           - lark
           - zarr
+          - ome-zarr-models
           - dask
           - deprecation
   - repo: https://github.com/adamchainz/blacken-docs
