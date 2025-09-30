@@ -39,3 +39,7 @@ def test_read_ome_zarr():
     assert dataset.dimension_names == ("z", "y", "x")
     assert dataset.voxel_unit == "mm"
     assert str(dataset.voxel_unit) == "mm"
+    assert np.isclose(
+        dataset.voxel_size,
+        (3.374303877353668e-2, 3.374303877353668e-2, 3.374303877353668e-2),
+    ).all()
