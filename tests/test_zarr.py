@@ -34,8 +34,20 @@ def test_read_zarr():
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_read_ome_zarr():
+def test_read_ome_zarr_mango():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS_AM.zarr")
+    assert dataset.dimension_names == ("z", "y", "x")
+    assert dataset.voxel_unit == "mm"
+    assert str(dataset.voxel_unit) == "mm"
+    assert np.isclose(
+        dataset.voxel_size,
+        (3.374303877353668e-2, 3.374303877353668e-2, 3.374303877353668e-2),
+    ).all()
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_read_ome_zarr_plain():
+    dataset = anu_ctlab_io.Dataset.from_path("tests/data/generic.ome.zarr")
     assert dataset.dimension_names == ("z", "y", "x")
     assert dataset.voxel_unit == "mm"
     assert str(dataset.voxel_unit) == "mm"
