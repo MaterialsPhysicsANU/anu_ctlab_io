@@ -54,7 +54,7 @@ def _transform_data_vars(dataset: xr.Dataset, datatype: DataType) -> dict[str, s
     attr_transform = {f"{datatype}_{dim}dim": dim for dim in ["x", "y", "z"]}
     for k in dataset.data_vars.keys():
         match k:
-            case a if a.find(str(datatype)) == 0:
+            case a if isinstance(a, str) and a.find(str(datatype)) == 0:
                 attr_transform[k] = "data"
     return attr_transform
 

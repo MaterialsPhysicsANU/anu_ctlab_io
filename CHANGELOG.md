@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bump `ome-zarr-models` to 1.3
+
 ### Fixed
 
 - Voxel size calculation for OME-Zarr datasets
