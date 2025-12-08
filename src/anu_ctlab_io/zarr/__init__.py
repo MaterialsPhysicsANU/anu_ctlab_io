@@ -3,18 +3,21 @@
 This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[zarr]``)."""
 
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import dask.array as da
 import numpy as np
 import zarr
 from ome_zarr_models.common.coordinate_transformations import VectorScale
-from ome_zarr_models.common.multiscales import ValidTransform
 from ome_zarr_models.v05.image import Image
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._voxel_properties import VoxelUnit
+
+if TYPE_CHECKING:
+    from ome_zarr_models.v05.multiscales import ValidTransform
+
 
 __all__ = ["dataset_from_zarr"]
 
