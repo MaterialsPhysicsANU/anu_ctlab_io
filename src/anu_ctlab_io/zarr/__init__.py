@@ -133,9 +133,15 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         history: dict[str, Any] = {}
     else:
         mango_attrs = zg.attrs["mango"]
-        assert isinstance(mango_attrs, Mapping)
+        if not isinstance(mango_attrs, Mapping):
+            raise TypeError(
+                f"Expected \"mango\" attribute to be a Mapping, got {type(mango_attrs)}"
+            ) from None
         basename = mango_attrs["basename"]
-        assert isinstance(basename, str)
+        if not isinstance(basename, str):
+            raise TypeError(
+                f"Expected mango \"basename\" to be a str, got {type(basename)}"
+            ) from None
         datatype = DataType.from_basename(basename)
         # NOTE: Should refine history from Any to JSON
         history = mango_attrs["history"]  # type: ignore[assignment]
