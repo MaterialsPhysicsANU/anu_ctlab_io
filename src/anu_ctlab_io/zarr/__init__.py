@@ -2,6 +2,7 @@
 
 This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[zarr]``)."""
 
+from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
 
@@ -52,8 +53,6 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         multiscale = multiscales[0]
         dataset = multiscale.datasets[0]
         data = da.from_zarr(path, component=dataset.path, **kwargs)  # type: ignore[no-untyped-call]
-        attrs = dict(zg.attrs)["mango"]  # type: ignore[assignment]
-        datatype = DataType.from_basename(attrs["basename"])
 
         if len(multiscale.axes) != 3:
             raise ValueError(
@@ -110,11 +109,24 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_size_root = extract_vector_scale(multiscale.coordinateTransformations)
         voxel_size = tuple(np.array(voxel_size_dataset) * np.array(voxel_size_root))
 
+        if "mango" not in zg.attrs:
+            # Handle a plain OME-Zarr dataset that has no mango attributes
+            datatype = None
+            history: dict[str, Any] = {}
+        else:
+            mango_attrs = zg.attrs["mango"]
+            assert isinstance(mango_attrs, Mapping)
+            basename = mango_attrs["basename"]
+            assert isinstance(basename, str)
+            datatype = DataType.from_basename(basename)
+            # NOTE: Should refine history from Any to JSON
+            history = mango_attrs["history"]  # type: ignore[assignment]
+
     return Dataset(
         data=data,
         dimension_names=dimension_names,
         datatype=datatype,
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
-        history=attrs["history"],
+        history=history,
     )
