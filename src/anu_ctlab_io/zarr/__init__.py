@@ -37,6 +37,7 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
         voxel_size = attrs["voxel_size_xyz"]
         datatype = DataType.from_basename(attrs["basename"])
+        history = attrs["history"]  # type: ignore[assignment]
 
     except zarr.errors.NodeTypeValidationError:  # happens if this is an ome
         zg = zarr.open_group(path, zarr_format=3)
