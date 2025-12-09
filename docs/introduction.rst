@@ -13,6 +13,7 @@ pre-existing MANGO toolchain.
 The specific netcdf and zarr loading functionality is contained in extras, so you will
 generally want to install this package as either ``anu_ctlab_io[netcdf]`` or ``anu_ctlab_io[zarr]``
 depending on the format of data you want to read.
+The ``all`` extra enables all supported formats.
 
 Examples
 ========
