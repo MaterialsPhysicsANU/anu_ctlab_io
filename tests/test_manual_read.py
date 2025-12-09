@@ -8,7 +8,7 @@ _HAS_ZARR = importlib.util.find_spec("zarr")
 _HAS_NETCDF4 = importlib.util.find_spec("netCDF4")
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+@pytest.mark.skipif(not _HAS_NETCDF4, reason="Requires 'netcdf' extra")
 def test_manual_read_netcdf_single():
     dataset = xr.open_mfdataset("tests/data/tomoLoRes_SS.nc")
 
