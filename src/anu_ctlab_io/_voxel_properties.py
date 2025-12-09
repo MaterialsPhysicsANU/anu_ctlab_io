@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any
+from typing import Any, Self
 
 
 class VoxelUnit(Enum):
@@ -53,5 +53,30 @@ class VoxelUnit(Enum):
         else:
             return False
 
+    def __hash__(self) -> int:
+        return hash(self.value)
+
     def __str__(self) -> str:
         return self.value
+
+    def _conversion_factor(self, target_unit: Self) -> float:
+        """Get the conversion factor from this unit to the target unit.
+
+        :param target_unit: The unit to convert to.
+        :return: The multiplication factor to convert from this unit to the target unit.
+        :raises ValueError: If either unit is VOXEL or if conversion is not supported.
+        """
+        if self == VoxelUnit.VOXEL or target_unit == VoxelUnit.VOXEL:
+            raise ValueError("Cannot convert to/from voxel unit")
+
+        # Conversion factors to meters
+        to_meters: dict[VoxelUnit, float] = {
+            VoxelUnit.M: 1.0,
+            VoxelUnit.CM: 1e-2,
+            VoxelUnit.MM: 1e-3,
+            VoxelUnit.UM: 1e-6,
+            VoxelUnit.NM: 1e-9,
+            VoxelUnit.ANGSTROM: 1e-10,
+        }
+
+        return to_meters[self] / to_meters[target_unit]

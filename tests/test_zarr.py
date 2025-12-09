@@ -2,6 +2,7 @@ import numpy as np
 import pytest
 
 import anu_ctlab_io
+from anu_ctlab_io import VoxelUnit
 
 try:
     import anu_ctlab_io.zarr
@@ -43,6 +44,11 @@ def test_read_ome_zarr_mango():
         dataset.voxel_size,
         (3.374303877353668e-2, 3.374303877353668e-2, 3.374303877353668e-2),
     ).all()
+    voxel_size_um = dataset.voxel_size_with_unit(VoxelUnit.UM)
+    assert np.isclose(
+        voxel_size_um,
+        (33.74303877353668, 33.74303877353668, 33.74303877353668),
+    ).all()
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
@@ -54,4 +60,9 @@ def test_read_ome_zarr_plain():
     assert np.isclose(
         dataset.voxel_size,
         (3.374303877353668e-2, 3.374303877353668e-2, 3.374303877353668e-2),
+    ).all()
+    voxel_size_um = dataset.voxel_size_with_unit(VoxelUnit.UM)
+    assert np.isclose(
+        voxel_size_um,
+        (33.74303877353668, 33.74303877353668, 33.74303877353668),
     ).all()
