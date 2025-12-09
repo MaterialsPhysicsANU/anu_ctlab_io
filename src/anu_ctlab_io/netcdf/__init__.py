@@ -92,6 +92,7 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
             coords="minimal",
             compat="override",
             mask_and_scale=False,
+            data_vars=[f"{datatype}"],
             **kwargs,
         )
     else:
