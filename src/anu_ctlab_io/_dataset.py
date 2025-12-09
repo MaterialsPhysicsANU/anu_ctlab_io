@@ -1,4 +1,4 @@
-from abc import ABC, abstractmethod, abstractproperty
+from abc import ABC, abstractmethod
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -19,29 +19,29 @@ class AbstractDataset(ABC):
     ) -> Self:
         pass
 
-    @abstractproperty
-    def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]:
-        pass
+    @property
+    @abstractmethod
+    def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]: ...
 
-    @abstractproperty
-    def voxel_unit(self) -> VoxelUnit:
-        pass
+    @property
+    @abstractmethod
+    def voxel_unit(self) -> VoxelUnit: ...
 
-    @abstractproperty
-    def dimension_names(self) -> tuple[str, ...]:
-        pass
+    @property
+    @abstractmethod
+    def dimension_names(self) -> tuple[str, ...]: ...
 
-    @abstractproperty
-    def history(self) -> dict[Any, Any] | str:
-        pass
+    @property
+    @abstractmethod
+    def history(self) -> dict[Any, Any] | str: ...
 
-    @abstractproperty
-    def mask_value(self) -> StorageDType | None:
-        pass
+    @property
+    @abstractmethod
+    def mask_value(self) -> StorageDType | None: ...
 
-    @abstractproperty
-    def data(self) -> da.Array:
-        pass
+    @property
+    @abstractmethod
+    def data(self) -> da.Array: ...
 
 
 class Dataset(AbstractDataset):
