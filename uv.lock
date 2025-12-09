@@ -34,6 +34,12 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+all = [
+    { name = "netcdf4" },
+    { name = "ome-zarr-models" },
+    { name = "scipy" },
+    { name = "zarr" },
+]
 netcdf = [
     { name = "netcdf4" },
     { name = "scipy" },
@@ -58,6 +64,7 @@ docs = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anu-ctlab-io", extras = ["netcdf", "zarr"], marker = "extra == 'all'" },
     { name = "dask", extras = ["array"], specifier = ">=2025.2.0" },
     { name = "deprecation", specifier = ">=2.1.0" },
     { name = "dictdiffer", specifier = ">=0.9.0" },
@@ -69,7 +76,7 @@ requires-dist = [
     { name = "xarray", specifier = ">=2025.1.2" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.1.1" },
 ]
-provides-extras = ["netcdf", "zarr"]
+provides-extras = ["netcdf", "zarr", "all"]
 
 [package.metadata.requires-dev]
 dev = [
