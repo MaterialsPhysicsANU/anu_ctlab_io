@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Support OME-Zarr datasets without `mango` metadata
+
 ### Changed
 
 - Bump `ome-zarr-models` to 1.3
+- Permit `Dataset` creation with a missing `DataType`
 
 ### Fixed
 

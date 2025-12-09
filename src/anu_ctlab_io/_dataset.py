@@ -56,7 +56,7 @@ class Dataset(AbstractDataset):
     """
 
     _data: da.Array
-    _datatype: DataType
+    _datatype: DataType | None
     _voxel_unit: VoxelUnit
     _voxel_size: tuple[np.float32, np.float32, np.float32]
     _history: dict[Any, Any] | str
@@ -68,7 +68,7 @@ class Dataset(AbstractDataset):
         dimension_names: tuple[str, ...],
         voxel_unit: VoxelUnit,
         voxel_size: tuple[np.float32, np.float32, np.float32],
-        datatype: DataType,
+        datatype: DataType | None = None,
         history: dict[str, Any] | None = None,
     ) -> None:
         """
@@ -177,7 +177,7 @@ class Dataset(AbstractDataset):
     @property
     def mask_value(self) -> StorageDType | None:
         """The mask value being used by the data."""
-        return self._datatype.mask_value
+        return None if self._datatype is None else self._datatype.mask_value
 
     @property
     def data(self) -> da.Array:
