@@ -82,19 +82,14 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
     )  # NOTE: str cast needed due to a mismatch in ome_zarr_models with the ome_zarr spec
 
     def _cast_unit(unit: str | Any | None) -> str | None:
-        if unit is None:
-            return None
-        if isinstance(unit, str):
+        if unit is None or isinstance(unit, str):
             return unit
         raise ValueError(f"Unsupported unit type: {unit}")
 
     voxel_unit_list: tuple[str | None, ...] = tuple(
         [_cast_unit(axis.unit) for axis in multiscale.axes]
     )
-    if not (
-        voxel_unit_list[0] == voxel_unit_list[1]
-        and voxel_unit_list[1] == voxel_unit_list[2]
-    ):
+    if not all(u == voxel_unit_list[0] for u in voxel_unit_list):
         raise ValueError(
             f"Provided zarr has differing units {voxel_unit_list}, these should all be equal."
         ) from None
