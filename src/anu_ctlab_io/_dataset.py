@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Self
+from typing import Any, Self, cast
 
 import dask.array as da
 import numpy as np
@@ -42,6 +42,10 @@ class AbstractDataset(ABC):
     @property
     @abstractmethod
     def data(self) -> da.Array: ...
+
+    @property
+    @abstractmethod
+    def mask(self) -> da.Array: ...
 
 
 class Dataset(AbstractDataset):
@@ -204,6 +208,18 @@ class Dataset(AbstractDataset):
 
         This is a `Dask Array <https://docs.dask.org/en/stable/array.html>`_."""
         return self._data
+
+    @property
+    def mask(self) -> da.Array:
+        """The masked areas of the :any:`Dataset`, as a boolean array.
+
+        This has the same dimensions as the data, and will be all-zero if no mask value exists."""
+        return cast(
+            da.Array,
+            da.zeros_like(self._data, dtype=bool)  # type: ignore [no-untyped-call]
+            if self._datatype is None
+            else self._data == self._datatype.mask_value,
+        )
 
 
 AbstractDataset.register(Dataset)
