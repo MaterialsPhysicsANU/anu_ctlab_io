@@ -153,8 +153,27 @@ class Dataset(AbstractDataset):
 
     @property
     def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]:
-        """The voxel size of the data."""
+        """The voxel size of the data in the dataset's native unit."""
         return self._voxel_size
+
+    def voxel_size_with_unit(
+        self, voxel_unit: VoxelUnit
+    ) -> tuple[np.float32, np.float32, np.float32]:
+        """Get the voxel size of the data converted to a target unit.
+
+        :param voxel_unit: The unit to convert the voxel size to.
+        :return: The voxel size as a tuple of three float32 values.
+        :raises ValueError: If unit conversion is requested but the source or target unit is VOXEL.
+        """
+        if voxel_unit == self._voxel_unit:
+            return self._voxel_size
+
+        conversion_factor = self._voxel_unit._conversion_factor(voxel_unit)
+        return (
+            np.float32(self._voxel_size[0] * conversion_factor),
+            np.float32(self._voxel_size[1] * conversion_factor),
+            np.float32(self._voxel_size[2] * conversion_factor),
+        )
 
     @property
     def voxel_unit(self) -> VoxelUnit:
