@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support OME-Zarr datasets without `mango` metadata
 - Add `all` extra
 - Add `mask` method to `Dataset`
+- Add `masked_data` method to `Dataset`
 
 ### Changed
 
