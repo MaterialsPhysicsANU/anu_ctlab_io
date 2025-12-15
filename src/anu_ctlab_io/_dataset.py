@@ -47,6 +47,10 @@ class AbstractDataset(ABC):
     @abstractmethod
     def mask(self) -> da.Array: ...
 
+    @property
+    @abstractmethod
+    def masked_data(self) -> da.Array: ...
+
 
 class Dataset(AbstractDataset):
     """A :any:`Dataset`, containing the data and metadata read from one of the ANU CTLab file formats.
@@ -219,6 +223,21 @@ class Dataset(AbstractDataset):
             da.zeros_like(self._data, dtype=bool)  # type: ignore [no-untyped-call]
             if self._datatype is None
             else self._data == self._datatype.mask_value,
+        )
+
+    @property
+    def masked_data(self) -> da.Array:
+        """The data contained within the :any:`Dataset`, as a masked array.
+
+        This has better performance than manually creating a masked_array using `mask` in the case
+        that the loaded datatype has no mask (i.e., OME-Zarr data), as it creates a masked array
+        with `nomask` in these situations."""
+        print(self._datatype)
+        return cast(
+            da.Array,
+            da.ma.masked_array(self._data, mask=self.mask)
+            if self._datatype is not None
+            else da.ma.masked_array(self._data),
         )
 
 
