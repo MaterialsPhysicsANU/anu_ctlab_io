@@ -1,5 +1,18 @@
 anu_ctlab_io package
 --------------------
+.. image:: https://img.shields.io/pypi/l/anu_ctlab_io
+   :alt: Licence (MIT)
+   :target: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/blob/main/LICENSE.md
+.. image:: https://img.shields.io/pypi/v/anu_ctlab_io
+   :alt: PyPI release version
+   :target: https://pypi.org/project/anu-ctlab-io/
+.. image:: https://img.shields.io/readthedocs/anu-ctlab-io
+   :alt: Read the Docs
+   :target: https://anu-ctlab-io.readthedocs.io
+.. image:: https://img.shields.io/github/actions/workflow/status/MaterialsPhysicsANU/anu_ctlab_io/ci.yml
+   :alt: CI status
+   :target: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/actions/workflows/ci.yml
+
 python I/O for the ANU CTLab array storage format(s).
 
 Introduction
