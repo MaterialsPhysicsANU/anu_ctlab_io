@@ -22,8 +22,6 @@ def dataset_to_netcdf(
     max_file_size_mb: float | None = None,
     compression_level: int = 2,
     history: dict[str, str] | None = None,
-    compute_histogram: bool = True,
-    histogram_bins: int = 6000,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to netcdf format.
@@ -37,8 +35,6 @@ def dataset_to_netcdf(
     :param compression_level: NetCDF compression level (0-9). Default is 2.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
-    :param compute_histogram: Whether to compute and include data histogram. Default True.
-    :param histogram_bins: Number of histogram bins if computing. Default 6000.
     :param extra_attrs: Additional global attributes to include.
     """
     if isinstance(path, str):
@@ -69,23 +65,6 @@ def dataset_to_netcdf(
 
     shape = data_array.shape
     zdim, ydim, xdim = shape
-
-    # Compute histogram if requested
-    histogram_data: np.ndarray[Any, Any] | None = None
-    histogram_attrs: dict[str, Any] = {}
-    if compute_histogram:
-        computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-        data_min = float(np.min(computed_data))
-        data_max = float(np.max(computed_data))
-        histogram, _ = np.histogram(
-            computed_data, bins=histogram_bins, range=(data_min, data_max)
-        )
-        histogram_data = histogram.astype(np.float64)
-        histogram_attrs = {
-            "data_min_max": np.array([data_min, data_max], dtype=np.float64),
-            "data_histogram_binsize": (data_max - data_min) / histogram_bins,
-            "data_histogram_offset": data_min,
-        }
 
     # Build common attributes
     dtype_name = np.dtype(datatype.dtype).name
@@ -118,8 +97,6 @@ def dataset_to_netcdf(
                 common_attrs,
                 compression_level,
                 history,
-                histogram_data,
-                histogram_attrs,
             )
             return
 
@@ -131,8 +108,6 @@ def dataset_to_netcdf(
         common_attrs,
         compression_level,
         history,
-        histogram_data,
-        histogram_attrs,
     )
 
 
@@ -143,8 +118,6 @@ def _write_single_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     history: dict[str, str] | None,
-    histogram_data: np.ndarray | None,
-    histogram_attrs: dict[str, Any],
 ) -> None:
     """Write a single netcdf file."""
     # Ensure path has .nc extension
@@ -159,7 +132,6 @@ def _write_single_netcdf(
         ncfile.createDimension(f"{datatype_str}_zdim", zdim)
         ncfile.createDimension(f"{datatype_str}_ydim", ydim)
         ncfile.createDimension(f"{datatype_str}_xdim", xdim)
-        ncfile.createDimension("md5sums_dim", 16)
 
         # Set global attributes
         ncfile.setncattr("zdim_total", zdim)
@@ -174,16 +146,6 @@ def _write_single_netcdf(
             for hist_key, hist_value in history.items():
                 ncfile.setncattr(f"history_{hist_key}", hist_value)
 
-        # Add histogram attributes
-        for key, value in histogram_attrs.items():
-            ncfile.setncattr(key, value)
-
-        # Create MD5 checksum variable (placeholder)
-        md5_var = ncfile.createVariable(
-            "md5_checksum", "i1", ("md5sums_dim",), zlib=False
-        )
-        md5_var[:] = np.zeros(16, dtype=np.int8)
-
         # Create main data variable
         storage_dtype_nc = _numpy_to_netcdf_dtype(np.dtype(datatype._dtype_uncorrected))
         data_var = ncfile.createVariable(
@@ -194,17 +156,8 @@ def _write_single_netcdf(
             complevel=compression_level,
         )
 
-        # Write data in chunks to avoid memory issues
-        computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-        data_var[:] = computed_data
-
-        # Create histogram variable if present
-        if histogram_data is not None:
-            ncfile.createDimension("data_histogram_dim", len(histogram_data))
-            hist_var = ncfile.createVariable(
-                "data_histogram", "f8", ("data_histogram_dim",), zlib=False
-            )
-            hist_var[:] = histogram_data
+        # Write data using da.store for chunked computation without loading entire array
+        da.store(data_array, data_var, compute=True)
 
 
 def _write_split_netcdf(
@@ -215,8 +168,6 @@ def _write_split_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     history: dict[str, str] | None,
-    histogram_data: np.ndarray | None,
-    histogram_attrs: dict[str, Any],
 ) -> None:
     """Write split netcdf files into a directory."""
     # Create directory with _nc suffix
@@ -235,9 +186,7 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
     datatype_str = str(datatype)
 
-    # Compute data once
-    computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-
+    # Process each block without computing the full array
     for block_idx in range(num_files):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
@@ -250,7 +199,6 @@ def _write_split_netcdf(
             ncfile.createDimension(f"{datatype_str}_zdim", block_zdim)
             ncfile.createDimension(f"{datatype_str}_ydim", ydim)
             ncfile.createDimension(f"{datatype_str}_xdim", xdim)
-            ncfile.createDimension("md5sums_dim", 16)
 
             # Set global attributes
             ncfile.setncattr("zdim_total", zdim)
@@ -260,20 +208,10 @@ def _write_split_netcdf(
             for key, value in common_attrs.items():
                 ncfile.setncattr(key, value)
 
-            # Only first block gets history and histogram
-            if block_idx == 0:
-                if history:
-                    for hist_key, hist_value in history.items():
-                        ncfile.setncattr(f"history_{hist_key}", hist_value)
-
-                for key, value in histogram_attrs.items():
-                    ncfile.setncattr(key, value)
-
-            # Create MD5 checksum variable (placeholder)
-            md5_var = ncfile.createVariable(
-                "md5_checksum", "i1", ("md5sums_dim",), zlib=False
-            )
-            md5_var[:] = np.zeros(16, dtype=np.int8)
+            # Only first block gets history
+            if block_idx == 0 and history:
+                for hist_key, hist_value in history.items():
+                    ncfile.setncattr(f"history_{hist_key}", hist_value)
 
             # Create main data variable
             storage_dtype_nc = _numpy_to_netcdf_dtype(
@@ -291,17 +229,9 @@ def _write_split_netcdf(
                 complevel=compression_level,
             )
 
-            # Write block data
-            block_data = computed_data[z_start : z_end + 1, :, :]
-            data_var[:] = block_data
-
-            # Create histogram variable only in first block
-            if block_idx == 0 and histogram_data is not None:
-                ncfile.createDimension("data_histogram_dim", len(histogram_data))
-                hist_var = ncfile.createVariable(
-                    "data_histogram", "f8", ("data_histogram_dim",), zlib=False
-                )
-                hist_var[:] = histogram_data
+            # Slice dask array and write using da.store for chunked computation
+            block_data = data_array[z_start : z_end + 1, :, :]
+            da.store(block_data, data_var, compute=True)
 
 
 def _numpy_to_netcdf_dtype(dtype: np.dtype) -> str:
