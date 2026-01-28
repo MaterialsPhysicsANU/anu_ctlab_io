@@ -1,4 +1,4 @@
-"""Read data from the ANU CTLab netcdf data format.
+"""Read and write data from/to the ANU CTLab netcdf data format.
 
 This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[netcdf]``)."""
 
@@ -21,7 +21,9 @@ if (
 ):
     raise ImportError("Neither netCDF4 nor h5netcdf could be imported.")
 
-__all__ = ["dataset_from_netcdf"]
+from anu_ctlab_io.netcdf._writer import dataset_to_netcdf
+
+__all__ = ["dataset_from_netcdf", "dataset_to_netcdf"]
 
 
 def dataset_from_netcdf(
