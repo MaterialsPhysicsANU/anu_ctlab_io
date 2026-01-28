@@ -15,6 +15,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add badges to docs/introduction.rst
 - Add `py312-dask-dev` test environment to test against fixed Dask warning logic
 - Added warning suppression for false-positive Dask PerformanceWarning when writing Zarr arrays
+- Add `serialize_history()` function for converting parsed history dicts back to strings (enables round-tripping)
+- Add `Dataset.add_to_history()` method for adding history entries to datasets (mutable approach)
+- Add `Dataset.update_history()` method for bulk updating history entries
+- Add `Dataset.from_modified()` classmethod for creating modified datasets with automatic history tracking (immutable approach)
 
 ### Changed
 
