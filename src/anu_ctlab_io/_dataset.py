@@ -303,5 +303,129 @@ class Dataset(AbstractDataset):
             else da.ma.masked_array(self._data),
         )
 
+    def add_to_history(self, key: str, value: dict[str, Any] | str) -> None:
+        """Add an entry to the dataset's history metadata.
+
+        This method mutates the dataset in-place by adding a new history entry.
+        The history will be automatically serialized when writing to NetCDF or Zarr formats.
+
+        :param key: The history key/identifier. Convention is to use timestamps
+            (e.g., "20260128_150530_crop") but any string is valid.
+        :param value: The history entry value. Can be a dict with operation details
+            (recommended) or a string. Dicts will be serialized to structured format.
+
+        Example::
+
+            ds = Dataset.from_path("data.nc")
+            ds.add_to_history("20260128_crop", {
+                "operation": "crop",
+                "z_range": [10, 50],
+                "reason": "Focus on region of interest"
+            })
+            ds.to_path("cropped.nc")  # History is preserved
+        """
+        if not isinstance(self._history, dict):
+            self._history = {}
+        self._history[key] = value
+
+    def update_history(self, entries: dict[str, dict[str, Any] | str]) -> None:
+        """Update the dataset's history with multiple entries at once.
+
+        This method mutates the dataset in-place by adding multiple history entries.
+        Equivalent to calling :any:`add_to_history` multiple times.
+
+        :param entries: Dictionary of history entries to add. Keys are history identifiers,
+            values are the entry data (dicts or strings).
+
+        Example::
+
+            ds.update_history({
+                "20260128_150530_crop": {"operation": "crop", "z_range": [10, 50]},
+                "20260128_150545_filter": {"operation": "gaussian_filter", "sigma": 2.0}
+            })
+        """
+        if not isinstance(self._history, dict):
+            self._history = {}
+        self._history.update(entries)
+
+    @classmethod
+    def from_modified(
+        cls,
+        source: "Dataset",
+        *,
+        data: da.Array | None = None,
+        voxel_size: tuple[np.float32, np.float32, np.float32] | None = None,
+        voxel_unit: VoxelUnit | None = None,
+        dimension_names: tuple[str, ...] | None = None,
+        datatype: DataType | None = None,
+        history_entry: dict[str, Any] | str | None = None,
+        history_key: str | None = None,
+    ) -> "Dataset":
+        """Create a new Dataset from a modified version of an existing one.
+
+        This factory method creates a new Dataset instance with selected attributes
+        modified, while preserving the rest from the source. Optionally adds a history
+        entry documenting the modification. This follows an immutable pattern where
+        the source dataset is not modified.
+
+        :param source: The source Dataset to create a modified copy from.
+        :param data: New data array. If None, uses source's data.
+        :param voxel_size: New voxel size. If None, uses source's voxel_size.
+        :param voxel_unit: New voxel unit. If None, uses source's voxel_unit.
+        :param dimension_names: New dimension names. If None, uses source's dimension_names.
+        :param datatype: New datatype. If None, uses source's datatype.
+        :param history_entry: History entry to add documenting the modification.
+            If provided, a new history entry is added with the given key.
+        :param history_key: Key for the history entry. If None and history_entry is provided,
+            auto-generates a timestamp-based key like "20260128_150530_modification".
+        :return: New Dataset instance with modifications applied.
+
+        Example::
+
+            ds = Dataset.from_path("data.nc")
+
+            # Create cropped version with automatic history
+            cropped = Dataset.from_modified(
+                ds,
+                data=ds.data[10:50, :, :],
+                history_entry={"operation": "crop", "z_range": [10, 50]},
+                history_key="20260128_crop"
+            )
+
+            # Chain modifications
+            scaled = Dataset.from_modified(
+                cropped,
+                voxel_size=(0.1, 0.1, 0.1),
+                history_entry={"operation": "rescale", "new_voxel_size": [0.1, 0.1, 0.1]}
+            )
+        """
+        from datetime import datetime
+
+        # Copy history from source
+        if isinstance(source._history, dict):
+            new_history = source._history.copy()
+        else:
+            new_history = {}
+
+        # Add new history entry if provided
+        if history_entry is not None:
+            if history_key is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                history_key = f"{timestamp}_modification"
+            new_history[history_key] = history_entry
+
+        return cls(
+            data=data if data is not None else source._data,
+            dimension_names=(
+                dimension_names
+                if dimension_names is not None
+                else source._dimension_names
+            ),
+            voxel_unit=voxel_unit if voxel_unit is not None else source._voxel_unit,
+            voxel_size=voxel_size if voxel_size is not None else source._voxel_size,
+            datatype=datatype if datatype is not None else source._datatype,
+            history=new_history,
+        )
+
 
 AbstractDataset.register(Dataset)
