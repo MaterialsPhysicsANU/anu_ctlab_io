@@ -239,9 +239,9 @@ def _write_ome_zarr_group(
         overwrite=True,
     )
 
-    # Write data
-    computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-    array[:] = computed_data
+    # Write data using da.to_zarr which handles chunked computation without
+    # loading the entire array into memory, and works even with zarr-backed sources
+    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
 
 
 def _write_zarr_array(
@@ -280,9 +280,8 @@ def _write_zarr_array(
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    # Write data
-    computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-    array[:] = computed_data
+    # Write data using da.to_zarr for efficient chunked computation
+    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
 
 
 def _write_split_zarr(
@@ -310,16 +309,15 @@ def _write_split_zarr(
     zdim, ydim, xdim = data_array.shape
     num_stores = (zdim + slices_per_store - 1) // slices_per_store
 
-    # Compute data once
-    computed_data: np.ndarray[Any, Any] = data_array.compute()  # type: ignore[no-untyped-call]
-
+    # Process each store (zarr handles dask arrays directly, no need to compute)
     for store_idx in range(num_stores):
         z_start = store_idx * slices_per_store
         z_end = min((store_idx + 1) * slices_per_store, zdim)
         store_zdim = z_end - z_start
 
         store_path = dir_path / f"store{store_idx:08d}.zarr"
-        store_data = da.from_array(computed_data[z_start:z_end, :, :])  # type: ignore[no-untyped-call]
+        # Slice the dask array directly - zarr will handle chunked computation
+        store_data = data_array[z_start:z_end, :, :]
 
         # Adjust chunks for this store
         store_chunks = (min(chunks[0], store_zdim), chunks[1], chunks[2])
