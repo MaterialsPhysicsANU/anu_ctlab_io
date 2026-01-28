@@ -18,6 +18,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- Add `serialize_history()` function for converting parsed history dicts back to strings
+- History parsing is now enabled by default when reading NetCDF files
+- NetCDF writer now automatically serializes parsed history dicts when writing
+
+### Fixed
+
+- Fixed history parser to handle both structured (BeginSection/EndSection) and log-style formats
+- History parser now always returns `dict`, never `str`
+- History parser converts Token objects to native Python types (str, bool, int, float, list)
+- Angle brackets in history values are now stripped: `<value>` → `value`
+- Multiple angle brackets in history values are now parsed as lists: `<v1><v2><v3>` → `[v1, v2, v3]`
+- Repeated keys in log-style histories are now parsed as lists
+- Unstructured text in log histories is now stored in the `_log_text` key
+
 ## [1.1.0] - 2025-12-15
 
 ### Added

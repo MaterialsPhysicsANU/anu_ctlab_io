@@ -11,6 +11,7 @@ import numpy as np
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._parse_history import serialize_history
 
 
 def dataset_to_netcdf(
@@ -19,8 +20,13 @@ def dataset_to_netcdf(
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     max_file_size_mb: float | None = None,
+<<<<<<< HEAD
     compression_level: int = 0,
     history: dict[str, str] | None = None,
+=======
+    compression_level: int = 2,
+    history: dict[str, Any] | None = None,
+>>>>>>> 46dfddb (feat: Add log parsing and serialisation to history)
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to netcdf format.
@@ -34,7 +40,8 @@ def dataset_to_netcdf(
     :param compression_level: NetCDF compression level (0-9). Default is 0 (no compression),
         because NetCDF compression is really slow.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
-        values are history strings.
+        values can be history strings or parsed history dicts (which will be serialized).
+        If None, uses the dataset's history attribute.
     :param extra_attrs: Additional global attributes to include.
     """
     if isinstance(path, str):
@@ -55,6 +62,20 @@ def dataset_to_netcdf(
     if dataset_id is None:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         dataset_id = f"{timestamp}_{datatype}"
+
+    # Handle history: use dataset history if not explicitly provided
+    if history is None:
+        history = dataset.history if isinstance(dataset.history, dict) else {}
+
+    # Serialize any parsed history dicts to strings
+    serialized_history: dict[str, str] = {}
+    for key, value in history.items():
+        if isinstance(value, dict):
+            # It's a parsed history dict, serialize it
+            serialized_history[key] = serialize_history(value)
+        else:
+            # It's already a string, use as-is
+            serialized_history[key] = str(value)
 
     # Prepare data
     data_array = dataset.data
@@ -96,7 +117,7 @@ def dataset_to_netcdf(
                 slices_per_file,
                 common_attrs,
                 compression_level,
-                history,
+                serialized_history,
             )
             return
 
@@ -107,7 +128,7 @@ def dataset_to_netcdf(
         datatype,
         common_attrs,
         compression_level,
-        history,
+        serialized_history,
     )
 
 

@@ -27,7 +27,7 @@ import anu_ctlab_io
 def test_roundtrip_netcdf_zarr_netcdf():
     """Roundtrip test: NetCDF → OME-Zarr → Simple Zarr → NetCDF.
 
-    This test validates the complete chain of conversions to ensure perfect
+    This test validates the complete chain of conversions to ensure
     data and metadata preservation across all formats.
     """
     # Load original NetCDF file from test data
@@ -82,8 +82,8 @@ def test_roundtrip_netcdf_zarr_netcdf():
             dataset_id="roundtrip_test_final",
         )
 
-        # Step 6: Read back final NetCDF and verify complete preservation
-        final_dataset = anu_ctlab_io.Dataset.from_path(netcdf_path, parse_history=False)
+        # Step 6: Read back final NetCDF and verify correctness
+        final_dataset = anu_ctlab_io.Dataset.from_path(netcdf_path)
         final_data = final_dataset.data.compute()
 
         # Verify data matches exactly
