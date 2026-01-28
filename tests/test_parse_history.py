@@ -105,15 +105,20 @@ def test_parse_angle_bracket_array():
 
 def test_parse_empty_values():
     # Test that empty values are handled (requires at least one space after key)
-    result = parse_history(
-        """
-        verbosity_level         high
-        empty_value
-        BeginSection Test
-            run_identifier
-        EndSection
-        """
+    # Note: Using explicit string construction to preserve trailing spaces
+    # (pre-commit trailing-whitespace hook would strip them from string literals)
+    history_str = "\n".join(
+        [
+            "",
+            "        verbosity_level         high",
+            "        empty_value             ",  # Has trailing spaces for empty value test
+            "        BeginSection Test",
+            "            run_identifier      ",  # Has trailing spaces for empty value test
+            "        EndSection",
+            "        ",
+        ]
     )
+    result = parse_history(history_str)
     assert result["empty_value"] == ""
     assert result["Test"]["run_identifier"] == ""
 
