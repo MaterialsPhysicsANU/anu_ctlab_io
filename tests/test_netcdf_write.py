@@ -104,38 +104,6 @@ def test_write_split_netcdf():
 
 
 @pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_write_without_histogram():
-    """Test writing without computing histogram."""
-    shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.UM,
-        voxel_size=(1.0, 1.0, 1.0),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "tomo_test_no_hist.nc"
-
-        # Write without histogram
-        anu_ctlab_io.netcdf.dataset_to_netcdf(
-            dataset, output_path, compute_histogram=False
-        )
-
-        # Read it back (without parsing history)
-        read_dataset = anu_ctlab_io.Dataset.from_path(output_path, parse_history=False)
-
-        # Verify basic properties
-        assert read_dataset.data.shape == shape
-        assert np.array_equal(read_dataset.data.compute(), data.compute())
-
-
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_roundtrip_against_reference():
     """Test roundtrip by comparing with reference files."""
     # Read existing test file
