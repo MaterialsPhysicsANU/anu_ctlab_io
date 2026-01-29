@@ -8,6 +8,20 @@ import pytest
 from anu_ctlab_io import Dataset
 from anu_ctlab_io._dataset import _extract_base_name_from_dataset_id
 
+try:
+    import anu_ctlab_io.netcdf
+
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
+
+try:
+    import anu_ctlab_io.zarr  # noqa: F401
+
+    _HAS_ZARR = True
+except ImportError:
+    _HAS_ZARR = False
+
 
 class TestExtractBaseName:
     """Tests for the dataset_id timestamp stripping helper."""
@@ -202,9 +216,7 @@ class TestDatasetIdNetCDF:
         assert ds2.dataset_id is not None
 
 
-@pytest.mark.skipif(
-    not pytest.importorskip("zarr", reason="Requires 'zarr' extra"), reason=""
-)
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 class TestDatasetIdZarr:
     """Tests for dataset_id tracking with Zarr format."""
 
@@ -235,9 +247,7 @@ class TestDatasetIdZarr:
         assert ds2.dataset_id == original_id
 
 
-@pytest.mark.skipif(
-    not pytest.importorskip("netCDF4", reason="Requires 'netcdf' extra"), reason=""
-)
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 class TestSaveMethod:
     """Tests for the save() method with auto-path generation."""
 
@@ -284,9 +294,7 @@ class TestSaveMethod:
         output_path = ds.save(suffix="_processed", directory=tmp_path)
         assert output_path.name == "tomoLoRes_SS_processed.nc"
 
-    @pytest.mark.skipif(
-        not pytest.importorskip("zarr", reason="Requires 'zarr' extra"), reason=""
-    )
+    @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
     def test_save_format_zarr(self, tmp_path):
         """Test save() with zarr format."""
         test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
