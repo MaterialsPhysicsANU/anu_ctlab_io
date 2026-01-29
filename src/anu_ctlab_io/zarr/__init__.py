@@ -46,6 +46,8 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
     voxel_size = attrs["voxel_size_xyz"]
     datatype = DataType.from_basename(attrs["basename"])
     history = attrs["history"]
+    dataset_id_raw = attrs.get("dataset_id")
+    dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
 
     return Dataset(
         data=data,
@@ -54,6 +56,8 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
         history=history,
+        dataset_id=dataset_id,
+        source_format="zarr",
     )
 
 
@@ -127,6 +131,7 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         # Handle a plain OME-Zarr dataset that has no mango attributes
         datatype = None
         history: dict[str, Any] = {}
+        dataset_id = None
     else:
         mango_attrs = zg.attrs["mango"]
         if not isinstance(mango_attrs, Mapping):
@@ -141,6 +146,8 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         datatype = DataType.from_basename(basename)
         # NOTE: Should refine history from Any to JSON
         history = mango_attrs["history"]  # type: ignore[assignment]
+        dataset_id_raw = mango_attrs.get("dataset_id")
+        dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
 
     return Dataset(
         data=data,
@@ -149,4 +156,6 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
         history=history,
+        dataset_id=dataset_id,
+        source_format="zarr",
     )

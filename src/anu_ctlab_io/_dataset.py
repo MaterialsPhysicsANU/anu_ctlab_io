@@ -1,3 +1,4 @@
+import re
 from abc import ABC, abstractmethod
 from importlib import import_module
 from pathlib import Path
@@ -9,6 +10,21 @@ import numpy as np
 
 from anu_ctlab_io._datatype import DataType, StorageDType
 from anu_ctlab_io._voxel_properties import VoxelUnit
+
+
+def _extract_base_name_from_dataset_id(dataset_id: str) -> str:
+    """Strip old-format timestamp from dataset_id for filename generation.
+
+    Old format "20250314_012913_basename" → returns "basename"
+    New format "0-00000_gb1" → returns "0-00000_gb1" (no match, return as-is)
+
+    :param dataset_id: The dataset identifier
+    :return: The base name without timestamp prefix
+    """
+    match = re.match(r"^(\d{8}_\d{6})_(.+)$", dataset_id)
+    if match:
+        return match.group(2)  # Everything after second underscore
+    return dataset_id  # Not old format, use as-is
 
 
 class AbstractDataset(ABC):
@@ -82,6 +98,8 @@ class Dataset(AbstractDataset):
         voxel_size: tuple[np.float32, np.float32, np.float32],
         datatype: DataType | None = None,
         history: dict[str, Any] | None = None,
+        dataset_id: str | None = None,
+        source_format: str | None = None,
     ) -> None:
         """
         Manually constructs a :any:`Dataset`.
@@ -92,6 +110,8 @@ class Dataset(AbstractDataset):
         :param voxel_size: The size of each voxel in the :any:`Dataset`.
         :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
         :param history: The history of the :any:`Dataset`.
+        :param dataset_id: The dataset identifier from the source file.
+        :param source_format: The format the dataset was read from ("netcdf" or "zarr").
         """
         if history is None:
             history = {}
@@ -102,6 +122,8 @@ class Dataset(AbstractDataset):
         self._voxel_unit = voxel_unit
         self._voxel_size = voxel_size
         self._history = history
+        self._dataset_id = dataset_id
+        self._source_format = source_format
 
     @staticmethod
     def _import_with_extra(module: str, extra: str) -> ModuleType:
@@ -168,6 +190,7 @@ class Dataset(AbstractDataset):
         path: Path | str,
         *,
         filetype: str = "auto",
+        dataset_id: str | None = "auto",
         **kwargs: Any,
     ) -> None:
         """Writes the :any:`Dataset` to the given ``path``.
@@ -179,10 +202,24 @@ class Dataset(AbstractDataset):
         :param filetype: The format to write ("NetCDF", "zarr", or "auto"). If "auto", format is inferred from path extension.
             When inferring, NetCDF is assumed for paths ending in ``.nc`` or ``_nc``, and Zarr for paths ending in ``.zarr``.
             If datatype is present in filename (e.g., "tomo_output"), NetCDF is assumed.
+        :param dataset_id: Dataset identifier to write to file metadata. Options:
+            - "auto" (default): Use self.dataset_id if available, otherwise generate new
+            - str: Use this exact value
+            - None: Generate new (legacy behavior)
         :param kwargs: Additional keyword arguments passed to the format-specific writer.
         """
         if isinstance(path, str):
             path = Path(path)
+
+        # Handle dataset_id parameter
+        if dataset_id == "auto":
+            resolved_dataset_id = self._dataset_id
+        else:
+            resolved_dataset_id = dataset_id
+
+        # Add resolved dataset_id to kwargs if not already present
+        if "dataset_id" not in kwargs:
+            kwargs["dataset_id"] = resolved_dataset_id
 
         match filetype:
             case "NetCDF":
@@ -221,6 +258,70 @@ class Dataset(AbstractDataset):
             "Unable to determine output format from given `path`, perhaps specify `filetype`?",
             path,
         )
+
+    def save(
+        self,
+        suffix: str = "_CTLAB_IO",
+        format: str | None = None,
+        directory: Path | str = ".",
+        **kwargs: Any,
+    ) -> Path:
+        """Write dataset with auto-generated filename.
+
+        Generates a filename based on the dataset_id, stripping old-format timestamps
+        for cleaner paths while preserving them in file metadata for provenance.
+
+        :param suffix: Suffix to append to the base name. Defaults to "_CTLAB_IO".
+        :param format: Output format ("netcdf" or "zarr"). If None, uses source_format or defaults to "netcdf".
+        :param directory: Directory to write the file to. Defaults to current directory.
+        :param kwargs: Additional arguments passed to the format writer.
+        :return: Path to the written file.
+        :raises ValueError: If dataset_id is not available (required for auto-path generation).
+
+        Example::
+
+            # Old format: "20250314_012913_tomoLoRes_SS"
+            # output filename: "tomoLoRes_SS_CTLAB_IO.nc"
+            # dataset_id in file: "20250314_012913_tomoLoRes_SS"
+            ds = Dataset.from_path("file.nc")
+            output_path = ds.save()
+
+            # New format: "0-00000_gb1"
+            # Output filename: "0-00000_gb1__processed.zarr"
+            ds2 = Dataset.from_path("file2.nc")
+            output_path = ds2.save(suffix="__processed", format="zarr")
+        """
+        # Determine format
+        if format is None:
+            format = self._source_format or "netcdf"
+
+        # Normalize format to match to_path expectations
+        if format.lower() == "netcdf":
+            filetype = "NetCDF"
+        elif format.lower() == "zarr":
+            filetype = "zarr"
+        else:
+            filetype = format
+
+        # Get base name (strip timestamp if old format)
+        if self._dataset_id is not None:
+            base_name = _extract_base_name_from_dataset_id(self._dataset_id)
+        else:
+            raise ValueError(
+                "Cannot auto-generate filename: dataset_id is not available. "
+                "Use to_path() with an explicit path instead."
+            )
+
+        # Construct filename using stripped basename
+        extension = ".zarr" if format.lower() == "zarr" else ".nc"
+        filename = f"{base_name}{suffix}{extension}"
+        output_path = Path(directory) / filename
+
+        # Write with ORIGINAL dataset_id preserved in metadata
+        # Use dataset_id="auto" to let to_path handle it
+        self.to_path(output_path, filetype=filetype, **kwargs)
+
+        return output_path
 
     @property
     def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]:
@@ -275,6 +376,16 @@ class Dataset(AbstractDataset):
 
         This is a `Dask Array <https://docs.dask.org/en/stable/array.html>`_."""
         return self._data
+
+    @property
+    def dataset_id(self) -> str | None:
+        """The dataset identifier from the source file, if available."""
+        return self._dataset_id
+
+    @property
+    def source_format(self) -> str | None:
+        """The format the dataset was read from ("netcdf" or "zarr"), if available."""
+        return self._source_format
 
     @property
     def mask(self) -> da.Array:
@@ -425,6 +536,8 @@ class Dataset(AbstractDataset):
             voxel_size=voxel_size if voxel_size is not None else source._voxel_size,
             datatype=datatype if datatype is not None else source._datatype,
             history=new_history,
+            dataset_id=source._dataset_id,
+            source_format=source._source_format,
         )
 
 
