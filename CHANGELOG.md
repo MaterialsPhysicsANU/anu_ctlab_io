@@ -7,7 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_zarr()` function
+- Add zarr writing via the `anu_ctlab_io.zarr.dataset_to_zarr()` function (defaults to OME-Zarr format)
+- Add `Dataset.to_path()` to write to both zarr and netcdf formats
 - Add badges to docs/introduction.rst
+- Add `serialize_history()` function for converting parsed history dicts back to strings (enables round-tripping)
+- Add `Dataset.add_to_history()` method for adding history entries to datasets (mutable approach)
+- Add `Dataset.update_history()` method for bulk updating history entries
+- Add `Dataset.from_modified()` classmethod for creating modified datasets with automatic history tracking (immutable approach)
+
+### Changed
+
+- History parsing is now enabled by default when reading NetCDF files
+- NetCDF writer now automatically serializes parsed history dicts when writing (preserves history through read/write cycles)
+
+### Fixed
+
+- Fixed history parser to handle both structured (BeginSection/EndSection) and log-style formats
+- History parser now always returns `dict`, never `str`
+- History parser converts Token objects to native Python types (str, bool, int, float, list)
+- Angle brackets in history values are now stripped: `<value>` → `value`
+- Multiple angle brackets are parsed as lists: `<v1><v2><v3>` → `[v1, v2, v3]`
+- Repeated keys in log-style histories become lists
+- Unstructured text in log histories stored in `_log_text` key
 
 ## [1.1.0] - 2025-12-15
 

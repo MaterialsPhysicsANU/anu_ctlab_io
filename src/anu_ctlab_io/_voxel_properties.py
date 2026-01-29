@@ -59,6 +59,25 @@ class VoxelUnit(Enum):
     def __str__(self) -> str:
         return self.value
 
+    def to_full_name(self) -> str:
+        """Return the full unit name for OME-Zarr metadata.
+
+        OME-Zarr specification requires full unit names (e.g., "millimeter")
+        rather than abbreviated forms (e.g., "mm").
+
+        :return: Full unit name as string.
+        """
+        full_names = {
+            VoxelUnit.M: "meter",
+            VoxelUnit.CM: "centimeter",
+            VoxelUnit.MM: "millimeter",
+            VoxelUnit.UM: "micrometer",
+            VoxelUnit.NM: "nanometer",
+            VoxelUnit.ANGSTROM: "angstrom",
+            VoxelUnit.VOXEL: "voxel",
+        }
+        return full_names[self]
+
     def _conversion_factor(self, target_unit: Self) -> float:
         """Get the conversion factor from this unit to the target unit.
 
