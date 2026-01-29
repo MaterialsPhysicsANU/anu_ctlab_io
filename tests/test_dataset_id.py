@@ -284,6 +284,9 @@ class TestSaveMethod:
         output_path = ds.save(suffix="_processed", directory=tmp_path)
         assert output_path.name == "tomoLoRes_SS_processed.nc"
 
+    @pytest.mark.skipif(
+        not pytest.importorskip("zarr", reason="Requires 'zarr' extra"), reason=""
+    )
     def test_save_format_zarr(self, tmp_path):
         """Test save() with zarr format."""
         test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"

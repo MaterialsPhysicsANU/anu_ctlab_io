@@ -9,9 +9,6 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.common.coordinate_transformations import VectorScale
-from ome_zarr_models.v05.image import Image
-from ome_zarr_models.v05.multiscales import ValidTransform
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -62,6 +59,8 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
 
 
 def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
+    from ome_zarr_models.v05.image import Image
+
     zg = zarr.open_group(path, zarr_format=3)
     ome = Image.from_zarr(zg)
     multiscales = ome.ome_attributes.multiscales
@@ -105,9 +104,11 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
 
     # Calculate the voxel size from the transformations
     def extract_vector_scale(
-        transformations: ValidTransform | None,
+        transformations: Any,
     ) -> tuple[float, float, float]:
         """Extracts the scale from a list of coordinate transformations, expects VectorScale."""
+        from ome_zarr_models.common.coordinate_transformations import VectorScale
+
         if transformations and len(transformations) > 0:
             scale_transform = transformations[0]
             if isinstance(scale_transform, VectorScale):

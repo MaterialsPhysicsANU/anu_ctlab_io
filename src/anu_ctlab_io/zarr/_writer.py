@@ -7,10 +7,6 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.v05.axes import Axis
-from ome_zarr_models.v05.coordinate_transformations import VectorScale
-from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
-from ome_zarr_models.v05.multiscales import Multiscale
 from zarr.codecs import ZstdCodec
 
 from anu_ctlab_io._dataset import Dataset
@@ -226,6 +222,11 @@ def _write_ome_zarr_group(
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
+    from ome_zarr_models.v05.axes import Axis
+    from ome_zarr_models.v05.coordinate_transformations import VectorScale
+    from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
+    from ome_zarr_models.v05.multiscales import Multiscale
+
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
 
