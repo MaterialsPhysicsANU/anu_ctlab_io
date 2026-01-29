@@ -471,6 +471,7 @@ class Dataset(AbstractDataset):
         datatype: DataType | None = None,
         history_entry: dict[str, Any] | str | None = None,
         history_key: str | None = None,
+        dataset_id_suffix: str | None = None,
     ) -> "Dataset":
         """Create a new Dataset from a modified version of an existing one.
 
@@ -489,26 +490,33 @@ class Dataset(AbstractDataset):
             If provided, a new history entry is added with the given key.
         :param history_key: Key for the history entry. If None and history_entry is provided,
             auto-generates a timestamp-based key like "20260128_150530_modification".
+        :param dataset_id_suffix: Suffix to append to the dataset_id. If provided,
+            the new dataset's dataset_id will be "{source.dataset_id}_{suffix}".
+            If source has no dataset_id, this parameter is ignored.
         :return: New Dataset instance with modifications applied.
 
         Example::
 
             ds = Dataset.from_path("data.nc")
 
-            # Create cropped version with automatic history
+            # Create cropped version with automatic history and modified dataset_id
             cropped = Dataset.from_modified(
                 ds,
                 data=ds.data[10:50, :, :],
                 history_entry={"operation": "crop", "z_range": [10, 50]},
-                history_key="20260128_crop"
+                history_key="20260128_crop",
+                dataset_id_suffix="cropped"
             )
+            # Result: dataset_id becomes "20250314_012913_tomoLoRes_SS_cropped"
 
             # Chain modifications
             scaled = Dataset.from_modified(
                 cropped,
                 voxel_size=(0.1, 0.1, 0.1),
-                history_entry={"operation": "rescale", "new_voxel_size": [0.1, 0.1, 0.1]}
+                history_entry={"operation": "rescale", "new_voxel_size": [0.1, 0.1, 0.1]},
+                dataset_id_suffix="scaled"
             )
+            # Result: dataset_id becomes "20250314_012913_tomoLoRes_SS_cropped_scaled"
         """
         from datetime import datetime
 
@@ -525,6 +533,11 @@ class Dataset(AbstractDataset):
                 history_key = f"{timestamp}_modification"
             new_history[history_key] = history_entry
 
+        # Modify dataset_id if suffix provided
+        new_dataset_id = source._dataset_id
+        if dataset_id_suffix is not None and source._dataset_id is not None:
+            new_dataset_id = f"{source._dataset_id}_{dataset_id_suffix}"
+
         return cls(
             data=data if data is not None else source._data,
             dimension_names=(
@@ -536,7 +549,7 @@ class Dataset(AbstractDataset):
             voxel_size=voxel_size if voxel_size is not None else source._voxel_size,
             datatype=datatype if datatype is not None else source._datatype,
             history=new_history,
-            dataset_id=source._dataset_id,
+            dataset_id=new_dataset_id,
             source_format=source._source_format,
         )
 
