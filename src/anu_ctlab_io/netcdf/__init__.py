@@ -47,6 +47,7 @@ def dataset_from_netcdf(
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))
     dataset["data"] = dataset.data.astype(datatype.dtype)
     dataset.attrs = _update_attrs(dataset.attrs, parse_history)
+    dataset_id = dataset.attrs.get("dataset_id")
     return Dataset(
         data=dataset.data.data,
         dimension_names=tuple(
@@ -56,6 +57,8 @@ def dataset_from_netcdf(
         voxel_unit=VoxelUnit.from_str(dataset.attrs["voxel_unit"]),
         voxel_size=dataset.attrs["voxel_size"],
         history=dataset.history,
+        dataset_id=dataset_id,
+        source_format="netcdf",
     )
 
 
