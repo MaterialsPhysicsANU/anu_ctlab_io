@@ -48,7 +48,6 @@ def dataset_to_zarr(
     if isinstance(path, str):
         path = Path(path)
 
-    # Infer datatype
     if datatype is None:
         if dataset._datatype is not None:
             datatype = dataset._datatype
@@ -62,25 +61,21 @@ def dataset_to_zarr(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         dataset_id = f"{timestamp}_{datatype}"
 
-    # Prepare data
     data_array = dataset.data
     storage_dtype = data_array.dtype
 
     shape = data_array.shape
 
-    # Calculate inner chunks and outer shards for Zarr v3 sharding
     inner_chunks, outer_shards = _calculate_chunks_and_shards(
         shape, storage_dtype, chunk_size_mb, max_shard_size_mb
     )
 
-    # Build mango metadata if datatype exists
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:
         mango_attrs = _build_mango_attrs(
             dataset, datatype, dataset_id, history, extra_attrs
         )
 
-    # Write store
     if use_ome_zarr:
         _write_ome_zarr_group(
             data_array,
@@ -204,7 +199,6 @@ def _build_mango_attrs(
     if dataset_id is not None:
         mango_attrs["dataset_id"] = dataset_id
 
-    # Add history
     if history:
         mango_attrs["history"] = history
     elif isinstance(dataset.history, dict):
@@ -212,7 +206,6 @@ def _build_mango_attrs(
     else:
         mango_attrs["history"] = {}
 
-    # Add extra attributes
     mango_attrs.update(extra_attrs)
 
     return mango_attrs
@@ -233,14 +226,11 @@ def _write_ome_zarr_group(
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
-    # Ensure path has .zarr extension
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
 
-    # Create group
     root = zarr.create_group(path, overwrite=True)
 
-    # Build OME metadata using ome-zarr-models classes
     ndim = data_array.ndim
     dimension_names = (
         dataset.dimension_names[:ndim]
@@ -248,18 +238,15 @@ def _write_ome_zarr_group(
         else dataset.dimension_names
     )
 
-    # Build axes metadata
     axes = [
         Axis(name=name, type="space", unit=str(dataset.voxel_unit))
         for name in dimension_names
     ]
 
-    # Build coordinate transformations with voxel size
     voxel_size_list = [float(v) for v in dataset.voxel_size]
     scale_transform = VectorScale(type="scale", scale=voxel_size_list)
     identity_transform = VectorScale(type="scale", scale=[1.0] * ndim)
 
-    # Build OME multiscale metadata
     multiscale = Multiscale(
         name="",
         axes=axes,
@@ -272,36 +259,29 @@ def _write_ome_zarr_group(
         coordinateTransformations=(scale_transform,),
     )
 
-    # Set OME attributes on root group (convert to dict for zarr)
+    # Set OME attributes on root group
     root.attrs["ome"] = {
         "version": "0.5",
         "multiscales": [multiscale.model_dump(mode="json")],
     }
 
-    # Add mango attributes if present
     if mango_attrs:
         root.attrs["mango"] = mango_attrs
 
-    # Create array in subgroup "0" with sharding enabled
     array = root.create_array(
         "0",
         shape=data_array.shape,
-        chunks=inner_chunks,  # Inner chunk subdivisions
-        shards=outer_shards,  # Outer shard size
+        chunks=inner_chunks,
+        shards=outer_shards,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
         compressors=[ZstdCodec(level=compression_level)],
         overwrite=True,
     )
 
-    # Rechunk dask array to match zarr shard size for safe writing
-    # Dask needs chunks aligned with the zarr chunk grid (outer shards, not inner chunks)
     if data_array.chunksize != outer_shards:
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    # Write data using da.to_zarr (dask 2026.1.1+)
-    # Suppress Dask's overly-pessimistic warning about chunk alignment
-    # The warning suggests risk of data loss, but this is not actually the case
     data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
 
 
@@ -320,7 +300,6 @@ def _write_zarr_array(
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
-    # Ensure path has .zarr extension
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
 
@@ -332,7 +311,6 @@ def _write_zarr_array(
         else dataset.dimension_names
     )
 
-    # Create array with sharding enabled
     array = zarr.create_array(
         path,
         shape=data_array.shape,
@@ -344,15 +322,10 @@ def _write_zarr_array(
         overwrite=True,
     )
 
-    # Add mango attributes
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    # Rechunk dask array to match zarr shard size for safe writing
-    # Dask needs chunks aligned with the zarr chunk grid (outer shards, not inner chunks)
     if data_array.chunksize != outer_shards:
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    # Write data using da.to_zarr (dask 2026.1.1+)
-    # Suppress Dask's overly-pessimistic warning about chunk alignment
     data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
