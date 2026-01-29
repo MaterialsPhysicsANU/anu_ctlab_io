@@ -132,7 +132,7 @@ def test_write_without_datatype():
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_split_zarr():
-    """Test writing split Zarr stores."""
+    """Test writing sharded Zarr stores (replaces old split store functionality)."""
     shape = (100, 20, 30)
     data = da.from_array(
         np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
@@ -147,32 +147,39 @@ def test_write_split_zarr():
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "test_split"
+        output_path = Path(tmpdir) / "test_sharded.zarr"
 
-        # Write with max store size to force splitting
-        # Each z-slice is 20*30*2 bytes = 1200 bytes
-        # Set max to ~0.02 MB to get ~18 slices per store
+        # Write with max shard size to create multiple shard files
+        # Each z-slice is 20*30*2 bytes = 1200 bytes = 0.0011 MB
+        # Set max_shard_size_mb to 0.02 MB and chunk_size_mb to 0.005 MB
+        # This should create multiple shard files
         anu_ctlab_io.zarr.dataset_to_zarr(
             dataset,
             output_path,
-            dataset_id="test_split_dataset",
-            max_store_size_mb=0.02,
+            dataset_id="test_sharded_dataset",
+            max_shard_size_mb=0.02,
+            chunk_size_mb=0.005,
         )
 
-        # Check directory was created
-        dir_path = Path(str(output_path) + "_zarr")
-        assert dir_path.exists()
-        assert dir_path.is_dir()
+        # Check zarr was created
+        assert output_path.exists()
+        assert output_path.is_dir()
 
-        # Check multiple store directories exist
-        store_dirs = sorted(list(dir_path.glob("store*.zarr")))
-        assert len(store_dirs) > 1
+        # Check multiple shard files exist
+        shard_files = list(output_path.glob("0/c/**/*"))
+        assert len(shard_files) > 1, (
+            f"Expected multiple shard files, got {len(shard_files)}"
+        )
 
-        # Verify each store can be read
-        for store_path in store_dirs:
-            store_dataset = anu_ctlab_io.Dataset.from_path(store_path)
-            assert store_dataset.data.shape[1:] == (20, 30)
-            assert store_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.MM
+        # Verify it can be read back correctly
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert loaded_dataset.data.shape == shape
+        assert loaded_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.MM
+
+        # Verify data integrity
+        original_sum = data.sum().compute()
+        loaded_sum = loaded_dataset.data.sum().compute()
+        assert np.isclose(original_sum, loaded_sum)
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
@@ -266,48 +273,6 @@ def test_to_path_auto_detection():
         read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert read_dataset.data.shape == shape
         assert np.array_equal(read_dataset.data.compute(), data.compute())
-
-
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_split_replaces_zarr_extension():
-    """Test that split writing replaces .zarr with _zarr in directory name."""
-    shape = (50, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # Path ends with .zarr
-        output_path = Path(tmpdir) / "split.zarr"
-
-        # Write with splitting
-        anu_ctlab_io.zarr.dataset_to_zarr(
-            dataset,
-            output_path,
-            dataset_id="test_zarr_replacement",
-            max_store_size_mb=0.05,
-        )
-
-        # Should have created directory with .zarr replaced by _zarr
-        expected_dir = Path(tmpdir) / "split_zarr"
-        assert expected_dir.exists(), f"Expected directory {expected_dir} not found"
-        assert expected_dir.is_dir()
-
-        # Should NOT have created split.zarr_zarr
-        wrong_dir = Path(tmpdir) / "split.zarr_zarr"
-        assert not wrong_dir.exists(), f"Incorrect directory {wrong_dir} was created"
-
-        # Verify stores exist
-        store_dirs = list(expected_dir.glob("store*.zarr"))
-        assert len(store_dirs) > 1
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
