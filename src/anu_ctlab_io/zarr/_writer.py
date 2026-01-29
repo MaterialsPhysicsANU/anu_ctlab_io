@@ -239,7 +239,7 @@ def _write_ome_zarr_group(
     )
 
     axes = [
-        Axis(name=name, type="space", unit=str(dataset.voxel_unit))
+        Axis(name=name, type="space", unit=dataset.voxel_unit.to_full_name())
         for name in dimension_names
     ]
 
