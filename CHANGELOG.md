@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_zarr()` function
+- Add zarr writing via the `anu_ctlab_io.zarr.dataset_to_zarr()` function (defaults to OME-Zarr format)
+- Add `Dataset.to_path()` to write to both zarr and netcdf formats
 - Add badges to docs/introduction.rst
 
 ## [1.1.0] - 2025-12-15

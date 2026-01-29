@@ -1,4 +1,4 @@
-"""Read data from the ANU CTLab zarr data format.
+"""Read and write data from/to the ANU CTLab zarr data format.
 
 This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[zarr]``)."""
 
@@ -16,8 +16,9 @@ from ome_zarr_models.v05.multiscales import ValidTransform
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._voxel_properties import VoxelUnit
+from anu_ctlab_io.zarr._writer import dataset_to_zarr
 
-__all__ = ["dataset_from_zarr"]
+__all__ = ["dataset_from_zarr", "dataset_to_zarr"]
 
 
 def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
