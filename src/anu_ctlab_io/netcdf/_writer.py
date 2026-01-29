@@ -20,13 +20,8 @@ def dataset_to_netcdf(
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     max_file_size_mb: float | None = None,
-<<<<<<< HEAD
     compression_level: int = 0,
-    history: dict[str, str] | None = None,
-=======
-    compression_level: int = 2,
     history: dict[str, Any] | None = None,
->>>>>>> 46dfddb (feat: Add log parsing and serialisation to history)
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to netcdf format.
