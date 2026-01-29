@@ -19,6 +19,10 @@ class AbstractDataset(ABC):
     ) -> Self:
         pass
 
+    @abstractmethod
+    def to_path(self, path: Path, *, filetype: str = "auto", **kwargs: Any) -> None:
+        pass
+
     @property
     @abstractmethod
     def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]: ...
@@ -157,6 +161,65 @@ class Dataset(AbstractDataset):
                 "Unable to construct Dataset from given `path`, perhaps specify `filetype`?",
                 path,
             )
+        )
+
+    def to_path(
+        self,
+        path: Path | str,
+        *,
+        filetype: str = "auto",
+        **kwargs: Any,
+    ) -> None:
+        """Writes the :any:`Dataset` to the given ``path``.
+
+        The data will be written in one of the ANU mass data storage formats, and the optional extras required for the specific
+        file format must be installed.
+
+        :param path: The ``path`` to write data to.
+        :param filetype: The format to write ("NetCDF", "zarr", or "auto"). If "auto", format is inferred from path extension.
+            When inferring, NetCDF is assumed for paths ending in ``.nc`` or ``_nc``, and Zarr for paths ending in ``.zarr``.
+            If datatype is present in filename (e.g., "tomo_output"), NetCDF is assumed.
+        :param kwargs: Additional keyword arguments passed to the format-specific writer.
+        """
+        if isinstance(path, str):
+            path = Path(path)
+
+        match filetype:
+            case "NetCDF":
+                netcdf_mod = self._import_with_extra("anu_ctlab_io.netcdf", "netcdf")
+                netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
+                return
+            case "zarr":
+                zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
+                zarr_mod.dataset_to_zarr(self, path, **kwargs)
+                return
+            case "auto":
+                # Check for explicit extensions
+                if path.name.endswith(".nc") or path.name.endswith("_nc"):
+                    netcdf_mod = self._import_with_extra(
+                        "anu_ctlab_io.netcdf", "netcdf"
+                    )
+                    netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
+                    return
+
+                if path.name.endswith(".zarr"):
+                    zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
+                    zarr_mod.dataset_to_zarr(self, path, **kwargs)
+                    return
+
+                # Check if datatype is in filename (Mango convention)
+                if self._datatype is not None:
+                    datatype_str = str(self._datatype)
+                    if datatype_str in path.name:
+                        netcdf_mod = self._import_with_extra(
+                            "anu_ctlab_io.netcdf", "netcdf"
+                        )
+                        netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
+                        return
+
+        raise ValueError(
+            "Unable to determine output format from given `path`, perhaps specify `filetype`?",
+            path,
         )
 
     @property
