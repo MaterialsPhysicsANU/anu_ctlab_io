@@ -90,7 +90,7 @@ class TestDatasetIdNetCDF:
         assert ds2.dataset_id == original_id
 
     def test_dataset_id_preserved_in_from_modified(self, tmp_path):
-        """Test that dataset_id is preserved in from_modified()."""
+        """Test that dataset_id is preserved in from_modified() without suffix."""
         test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
         if not test_file.exists():
             pytest.skip("Test file not found")
@@ -98,13 +98,73 @@ class TestDatasetIdNetCDF:
         ds = Dataset.from_path(test_file)
         original_id = ds.dataset_id
 
-        # Create modified dataset
+        # Create modified dataset without suffix
         modified = Dataset.from_modified(
             ds, data=ds.data[:5, :, :], history_entry={"operation": "crop"}
         )
 
         assert modified.dataset_id == original_id
         assert modified.source_format == ds.source_format
+
+    def test_dataset_id_modified_with_suffix(self, tmp_path):
+        """Test that dataset_id is modified when dataset_id_suffix is provided."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+        original_id = ds.dataset_id
+
+        # Create modified dataset with suffix
+        modified = Dataset.from_modified(
+            ds,
+            data=ds.data[:5, :, :],
+            history_entry={"operation": "crop"},
+            dataset_id_suffix="cropped",
+        )
+
+        assert modified.dataset_id == f"{original_id}_cropped"
+        assert modified.dataset_id == "20250314_012913_tomoLoRes_SS_cropped"
+
+    def test_dataset_id_suffix_chaining(self, tmp_path):
+        """Test that dataset_id suffixes can be chained."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+
+        # Chain modifications with suffixes
+        cropped = Dataset.from_modified(
+            ds, data=ds.data[:5, :, :], dataset_id_suffix="cropped"
+        )
+
+        filtered = Dataset.from_modified(
+            cropped, data=cropped.data, dataset_id_suffix="filtered"
+        )
+
+        assert filtered.dataset_id == "20250314_012913_tomoLoRes_SS_cropped_filtered"
+
+    def test_dataset_id_suffix_without_source_id(self, tmp_path):
+        """Test that dataset_id_suffix is ignored if source has no dataset_id."""
+        import dask.array as da
+
+        from anu_ctlab_io._voxel_properties import VoxelUnit
+
+        # Create dataset without dataset_id
+        ds = Dataset(
+            data=da.from_array(np.ones((10, 20, 30), dtype=np.float32)),
+            dimension_names=("z", "y", "x"),
+            voxel_unit=VoxelUnit.MM,
+            voxel_size=(1.0, 1.0, 1.0),
+        )
+
+        # Try to add suffix - should be ignored
+        modified = Dataset.from_modified(
+            ds, data=ds.data[:5, :, :], dataset_id_suffix="cropped"
+        )
+
+        assert modified.dataset_id is None
 
     def test_explicit_dataset_id_override(self, tmp_path):
         """Test that explicit dataset_id parameter overrides stored value."""
