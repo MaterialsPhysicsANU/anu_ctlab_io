@@ -1,6 +1,5 @@
 """Write data to the ANU CTLab zarr data format."""
 
-import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -159,6 +158,24 @@ def _calculate_chunks_and_shards(
         z_outer = z_inner * multiple
         z_outer = min(z_outer, zdim)
 
+    # CRITICAL: Ensure z_outer divides evenly into zdim to avoid writer race conditions
+    # Dask's parallel writes can corrupt data if chunks don't align with shard boundaries
+    if zdim % z_outer != 0:
+        # Find the largest divisor of zdim that is <= z_outer and a multiple of z_inner
+        for candidate in range(z_outer, z_inner - 1, -1):
+            if zdim % candidate == 0 and candidate % z_inner == 0:
+                z_outer = candidate
+                break
+        else:
+            # If no suitable divisor found, find any divisor of zdim >= z_inner
+            for candidate in range(z_inner, zdim + 1):
+                if zdim % candidate == 0:
+                    z_outer = candidate
+                    break
+            else:
+                # Last resort: use zdim itself (single shard)
+                z_outer = zdim
+
     outer_shards = (z_outer, ydim, xdim)
 
     return inner_chunks, outer_shards
@@ -285,9 +302,7 @@ def _write_ome_zarr_group(
     # Write data using da.to_zarr (dask 2026.1.1+)
     # Suppress Dask's overly-pessimistic warning about chunk alignment
     # The warning suggests risk of data loss, but this is not actually the case
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*chunk size.*required for Dask.*")
-        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
 
 
 def _write_zarr_array(
@@ -340,7 +355,4 @@ def _write_zarr_array(
 
     # Write data using da.to_zarr (dask 2026.1.1+)
     # Suppress Dask's overly-pessimistic warning about chunk alignment
-    # The warning suggests risk of data loss, but this is not actually the case
-    with warnings.catch_warnings():
-        warnings.filterwarnings("ignore", message=".*chunk size.*required for Dask.*")
-        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
