@@ -1,6 +1,7 @@
 """Write data to the ANU CTLab zarr data format."""
 
 from datetime import datetime
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -15,13 +16,21 @@ from ome_zarr_models.v05.multiscales import Multiscale
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 
+__all__ = ["OMEZarrVersion", "dataset_to_zarr"]
+
+
+class OMEZarrVersion(Enum):
+    """OME-Zarr specification version to use when writing."""
+
+    v05 = "0.5"
+
 
 def dataset_to_zarr(
     dataset: Dataset,
     path: Path | str,
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
-    use_ome_zarr: bool = True,
+    ome_zarr_version: OMEZarrVersion | None = OMEZarrVersion.v05,
     max_shard_size_mb: float = 1000.0,
     history: dict[str, str] | None = None,
     chunk_size_mb: float = 10.0,
@@ -34,8 +43,9 @@ def dataset_to_zarr(
     :param path: Path to write the Zarr store.
     :param datatype: The data type identifier. If None, attempts to infer from dataset.
     :param dataset_id: Unique identifier for the dataset. Auto-generated if not provided.
-    :param use_ome_zarr: If True (default), writes OME-Zarr V0.5 group format.
-        If False, writes simple Zarr V3 array with mango metadata.
+    :param ome_zarr_version: OME-Zarr specification version to use.
+        Set to :any:`OMEZarrVersion.v05` (default) to write OME-Zarr V0.5 group format.
+        Set to ``None`` to write a simple Zarr V3 array with mango metadata.
     :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding. Default 1000 MB (1 GB).
         Shards group multiple chunks into indexed files for better filesystem performance.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
@@ -79,7 +89,7 @@ def dataset_to_zarr(
     if create_array_kwargs is None:
         create_array_kwargs = {}
 
-    if use_ome_zarr:
+    if ome_zarr_version is not None:
         _write_ome_zarr_group(
             data_array,
             path,
@@ -88,6 +98,7 @@ def dataset_to_zarr(
             outer_shards,
             create_array_kwargs,
             mango_attrs,
+            ome_zarr_version,
         )
     else:
         _write_zarr_array(
@@ -222,8 +233,9 @@ def _write_ome_zarr_group(
     outer_shards: tuple[int, ...],
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
+    ome_zarr_version: OMEZarrVersion,
 ) -> None:
-    """Write data as an OME-Zarr V0.5 group with Zarr v3 sharding.
+    """Write data as an OME-Zarr group with Zarr v3 sharding.
 
     In Zarr v3 sharding:
     - inner_chunks (chunks param) = subdivisions within each shard file
@@ -264,7 +276,7 @@ def _write_ome_zarr_group(
 
     # Set OME attributes on root group
     root.attrs["ome"] = {
-        "version": "0.5",
+        "version": ome_zarr_version.value,
         "multiscales": [multiscale.model_dump(mode="json")],
     }
 

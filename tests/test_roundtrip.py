@@ -45,7 +45,7 @@ def test_roundtrip_netcdf_zarr_netcdf():
             zarr_ome_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="roundtrip_test_ome",
-            use_ome_zarr=True,
+            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
         )
 
         # Step 2: Read back from OME-Zarr and verify
@@ -63,7 +63,7 @@ def test_roundtrip_netcdf_zarr_netcdf():
             zarr_array_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="roundtrip_test_array",
-            use_ome_zarr=False,
+            ome_zarr_version=None,
         )
 
         # Step 4: Read back from simple Zarr and verify

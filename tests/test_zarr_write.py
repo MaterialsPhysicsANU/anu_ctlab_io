@@ -39,7 +39,7 @@ def test_write_single_ome_zarr():
             dataset,
             output_path,
             dataset_id="test_dataset",
-            use_ome_zarr=True,
+            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
         )
 
         # Verify file exists
@@ -81,7 +81,7 @@ def test_write_single_zarr_array():
             dataset,
             output_path,
             dataset_id="test_dataset",
-            use_ome_zarr=False,
+            ome_zarr_version=None,
         )
 
         # Verify file exists
@@ -197,7 +197,7 @@ def test_roundtrip_against_reference():
             output_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="roundtrip_test",
-            use_ome_zarr=False,
+            ome_zarr_version=None,
         )
 
         # Read it back
@@ -228,7 +228,7 @@ def test_roundtrip_ome_zarr():
             output_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="ome_roundtrip_test",
-            use_ome_zarr=True,
+            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
         )
 
         # Read it back
@@ -300,7 +300,7 @@ def test_write_with_history():
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "history_test.zarr"
 
-        anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, use_ome_zarr=False)
+        anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
 
         # Read back and verify history is preserved
         read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
