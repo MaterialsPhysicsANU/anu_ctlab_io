@@ -11,7 +11,6 @@ from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
 from ome_zarr_models.v05.multiscales import Multiscale
-from zarr.codecs import ZstdCodec
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -24,9 +23,9 @@ def dataset_to_zarr(
     dataset_id: str | None = None,
     use_ome_zarr: bool = True,
     max_shard_size_mb: float = 1000.0,
-    compression_level: int = 2,
     history: dict[str, str] | None = None,
     chunk_size_mb: float = 10.0,
+    create_array_kwargs: dict[str, Any] | None = None,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to Zarr format.
@@ -39,10 +38,11 @@ def dataset_to_zarr(
         If False, writes simple Zarr V3 array with mango metadata.
     :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding. Default 1000 MB (1 GB).
         Shards group multiple chunks into indexed files for better filesystem performance.
-    :param compression_level: Compression level (0-9) for zstd codec. Default is 2.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
     :param chunk_size_mb: Target chunk size in MB for automatic chunking. Default 10.0 MB.
+    :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
+        For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -76,6 +76,9 @@ def dataset_to_zarr(
             dataset, datatype, dataset_id, history, extra_attrs
         )
 
+    if create_array_kwargs is None:
+        create_array_kwargs = {}
+
     if use_ome_zarr:
         _write_ome_zarr_group(
             data_array,
@@ -83,7 +86,7 @@ def dataset_to_zarr(
             dataset,
             inner_chunks,
             outer_shards,
-            compression_level,
+            create_array_kwargs,
             mango_attrs,
         )
     else:
@@ -93,7 +96,7 @@ def dataset_to_zarr(
             dataset,
             inner_chunks,
             outer_shards,
-            compression_level,
+            create_array_kwargs,
             mango_attrs,
         )
 
@@ -217,7 +220,7 @@ def _write_ome_zarr_group(
     dataset: Dataset,
     inner_chunks: tuple[int, ...],
     outer_shards: tuple[int, ...],
-    compression_level: int,
+    create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
 ) -> None:
     """Write data as an OME-Zarr V0.5 group with Zarr v3 sharding.
@@ -275,8 +278,8 @@ def _write_ome_zarr_group(
         shards=outer_shards,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
-        compressors=[ZstdCodec(level=compression_level)],
         overwrite=True,
+        **create_array_kwargs,
     )
 
     if data_array.chunksize != outer_shards:
@@ -291,7 +294,7 @@ def _write_zarr_array(
     dataset: Dataset,
     inner_chunks: tuple[int, ...],
     outer_shards: tuple[int, ...],
-    compression_level: int,
+    create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
 ) -> None:
     """Write data as a simple Zarr V3 array with mango metadata and sharding.
@@ -318,8 +321,8 @@ def _write_zarr_array(
         shards=outer_shards,  # Outer shard size
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
-        compressors=[ZstdCodec(level=compression_level)],
         overwrite=True,
+        **create_array_kwargs,
     )
 
     if mango_attrs:
