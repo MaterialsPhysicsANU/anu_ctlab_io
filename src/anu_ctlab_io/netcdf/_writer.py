@@ -19,7 +19,7 @@ def dataset_to_netcdf(
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     max_file_size_mb: float | None = None,
-    compression_level: int = 2,
+    compression_level: int = 0,
     history: dict[str, str] | None = None,
     **extra_attrs: Any,
 ) -> None:
@@ -31,7 +31,8 @@ def dataset_to_netcdf(
     :param dataset_id: Unique identifier for the dataset. Auto-generated if not provided.
     :param max_file_size_mb: Maximum file size in MB. If specified and data exceeds this,
         it will be split along the z-axis. If None, writes a single file.
-    :param compression_level: NetCDF compression level (0-9). Default is 2.
+    :param compression_level: NetCDF compression level (0-9). Default is 0 (no compression),
+        because NetCDF compression is really slow.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
     :param extra_attrs: Additional global attributes to include.
