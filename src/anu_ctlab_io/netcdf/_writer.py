@@ -235,30 +235,25 @@ def _write_split_netcdf(
         dask.compute(*delayed_writes)  # type: ignore[attr-defined, no-untyped-call]
 
 
+_NUMPY_TO_NETCDF_DTYPE_MAP = {
+    np.dtype(np.int8): "i1",
+    np.dtype(np.int16): "i2",
+    np.dtype(np.int32): "i4",
+    np.dtype(np.int64): "i8",
+    np.dtype(np.uint8): "u1",
+    np.dtype(np.uint16): "u2",
+    np.dtype(np.uint32): "u4",
+    np.dtype(np.uint64): "u8",
+    np.dtype(np.float16): "f2",
+    np.dtype(np.float32): "f4",
+    np.dtype(np.float64): "f8",
+}
+
+
 def _numpy_to_netcdf_dtype(dtype: np.dtype) -> str:
     """Convert numpy dtype to netCDF4 dtype string."""
     dtype = np.dtype(dtype)
-    if dtype == np.int8:
-        return "i1"
-    elif dtype == np.int16:
-        return "i2"
-    elif dtype == np.int32:
-        return "i4"
-    elif dtype == np.int64:
-        return "i8"
-    elif dtype == np.uint8:
-        return "u1"
-    elif dtype == np.uint16:
-        return "u2"
-    elif dtype == np.uint32:
-        return "u4"
-    elif dtype == np.uint64:
-        return "u8"
-    elif dtype == np.float16:
-        return "f2"
-    elif dtype == np.float32:
-        return "f4"
-    elif dtype == np.float64:
-        return "f8"
-    else:
-        raise ValueError(f"Unsupported dtype: {dtype}")
+    try:
+        return _NUMPY_TO_NETCDF_DTYPE_MAP[dtype]
+    except KeyError:
+        raise ValueError(f"Unsupported dtype: {dtype}") from None
