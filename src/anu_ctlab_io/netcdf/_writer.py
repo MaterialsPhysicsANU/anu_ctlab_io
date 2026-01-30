@@ -4,9 +4,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import dask
 import dask.array as da
-
-# Type stubs for netCDF4 don't exist, ignore import
 import netCDF4 as nc4  # type: ignore[import-not-found]
 import numpy as np
 
@@ -186,7 +185,8 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
     datatype_str = str(datatype)
 
-    # Process each block without computing the full array
+    delayed_writes = []
+
     for block_idx in range(num_files):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
@@ -229,9 +229,9 @@ def _write_split_netcdf(
                 complevel=compression_level,
             )
 
-            # Slice dask array and write using da.store for chunked computation
             block_data = data_array[z_start : z_end + 1, :, :]
-            da.store(block_data, data_var, compute=True)
+            delayed_writes.append(da.store(block_data, data_var))
+        dask.compute(*delayed_writes)  # type: ignore[attr-defined, no-untyped-call]
 
 
 def _numpy_to_netcdf_dtype(dtype: np.dtype) -> str:
