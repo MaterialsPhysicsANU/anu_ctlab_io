@@ -34,6 +34,8 @@ def dataset_to_zarr(
     max_shard_size_mb: float = 1000.0,
     history: dict[str, str] | None = None,
     chunk_size_mb: float = 10.0,
+    chunks: tuple[int, ...] | None = None,
+    shards: tuple[int, ...] | None = None,
     create_array_kwargs: dict[str, Any] | None = None,
     **extra_attrs: Any,
 ) -> None:
@@ -48,9 +50,17 @@ def dataset_to_zarr(
         Set to ``None`` to write a simple Zarr V3 array with mango metadata.
     :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding. Default 1000 MB (1 GB).
         Shards group multiple chunks into indexed files for better filesystem performance.
+        Mutually exclusive with ``chunks`` and ``shards`` parameters.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
     :param chunk_size_mb: Target chunk size in MB for automatic chunking. Default 10.0 MB.
+        Mutually exclusive with ``chunks`` and ``shards`` parameters.
+    :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
+        Must be provided together with ``shards``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
+        When provided, user is responsible for ensuring valid chunk/shard alignment.
+    :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
+        Must be provided together with ``chunks``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
+        When provided, user is responsible for ensuring valid chunk/shard alignment.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
     :param extra_attrs: Additional attributes to include in mango metadata.
@@ -76,9 +86,31 @@ def dataset_to_zarr(
 
     shape = data_array.shape
 
-    inner_chunks, outer_shards = _calculate_chunks_and_shards(
-        shape, storage_dtype, chunk_size_mb, max_shard_size_mb
-    )
+    chunks_provided = chunks is not None
+    shards_provided = shards is not None
+    sizes_provided = (chunk_size_mb != 10.0) or (max_shard_size_mb != 1000.0)
+
+    if chunks_provided != shards_provided:
+        raise ValueError(
+            "chunks and shards must both be provided or both be None. "
+            f"Got chunks={'provided' if chunks_provided else 'None'}, "
+            f"shards={'provided' if shards_provided else 'None'}."
+        )
+
+    if chunks_provided and sizes_provided:
+        raise ValueError(
+            "Cannot specify both chunks/shards and chunk_size_mb/max_shard_size_mb. "
+            "Use either shape-based parameters (chunks and shards) or "
+            "size-based parameters (chunk_size_mb and max_shard_size_mb), not both."
+        )
+
+    if chunks is not None and shards is not None:
+        inner_chunks = chunks
+        outer_shards = shards
+    else:
+        inner_chunks, outer_shards = _calculate_chunks_and_shards(
+            shape, storage_dtype, chunk_size_mb, max_shard_size_mb
+        )
 
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:

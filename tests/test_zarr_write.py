@@ -335,3 +335,218 @@ def test_write_different_dtypes():
             read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
             assert read_dataset.data.dtype == dtype
             assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_write_with_explicit_chunks_and_shards():
+    """Test writing with user-provided chunk and shard shapes."""
+    shape = (100, 50, 60)
+    data = da.from_array(
+        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 50, 60)
+    )
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "explicit_shapes.zarr"
+
+        # Write with explicit chunks and shards
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            chunks=(5, 50, 60),
+            shards=(20, 50, 60),
+        )
+
+        assert output_path.exists()
+
+        # Read back and verify
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_write_explicit_shapes_roundtrip():
+    """Test roundtrip with explicit chunk and shard shapes."""
+    shape = (60, 40, 50)
+    data = da.from_array(
+        np.random.randint(0, 1000, shape, dtype=np.uint16), chunks=shape
+    )
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.UM,
+        voxel_size=(1.0, 1.0, 1.0),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "shapes_roundtrip.zarr"
+
+        # Write with custom chunks and shards
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            chunks=(10, 40, 50),
+            shards=(30, 40, 50),
+            ome_zarr_version=None,
+        )
+
+        # Read back
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+
+        # Verify complete data integrity
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data.compute())
+        assert read_dataset.voxel_unit == dataset.voxel_unit
+        assert np.allclose(read_dataset.voxel_size, dataset.voxel_size)
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_error_chunks_without_shards():
+    """Test that providing chunks without shards raises ValueError."""
+    shape = (10, 20, 30)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.zarr"
+
+        with pytest.raises(ValueError, match="chunks and shards must both be provided"):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                chunks=(5, 20, 30),
+            )
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_error_shards_without_chunks():
+    """Test that providing shards without chunks raises ValueError."""
+    shape = (10, 20, 30)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.zarr"
+
+        with pytest.raises(ValueError, match="chunks and shards must both be provided"):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                shards=(10, 20, 30),
+            )
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_error_both_shapes_and_sizes():
+    """Test that providing both shapes and sizes raises ValueError."""
+    shape = (10, 20, 30)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.zarr"
+
+        with pytest.raises(
+            ValueError, match="Cannot specify both chunks/shards and chunk_size_mb"
+        ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                chunks=(5, 20, 30),
+                shards=(10, 20, 30),
+                chunk_size_mb=5.0,
+            )
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_error_shapes_and_max_shard_size():
+    """Test that providing shapes with max_shard_size_mb raises ValueError."""
+    shape = (10, 20, 30)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.zarr"
+
+        with pytest.raises(
+            ValueError, match="Cannot specify both chunks/shards and chunk_size_mb"
+        ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                chunks=(5, 20, 30),
+                shards=(10, 20, 30),
+                max_shard_size_mb=100.0,
+            )
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_user_shapes_used_without_validation():
+    """Test that user-provided shapes are used directly without validation."""
+    shape = (100, 50, 60)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "unvalidated_shapes.zarr"
+
+        # Use shapes that wouldn't normally be chosen by automatic calculation
+        # (e.g., single z-slice chunks which violate MIN_Z_SLICES=2 rule)
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            chunks=(1, 50, 60),  # Single slice - would normally be rejected
+            shards=(25, 50, 60),  # Not a perfect divisor of 100
+        )
+
+        # Should succeed without validation errors
+        assert output_path.exists()
+
+        # Data should still be readable
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert read_dataset.data.shape == shape
