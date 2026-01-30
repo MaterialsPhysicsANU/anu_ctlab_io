@@ -137,9 +137,7 @@ def _write_single_netcdf(
         ncfile.setncattr("zdim_total", zdim)
         ncfile.setncattr("number_of_files", 1)
         ncfile.setncattr("zdim_range", np.array([0, zdim - 1], dtype=np.int32))
-
-        for key, value in common_attrs.items():
-            ncfile.setncattr(key, value)
+        ncfile.setncatts(common_attrs)
 
         # Add history attributes
         if history:
@@ -205,9 +203,7 @@ def _write_split_netcdf(
             ncfile.setncattr("zdim_total", zdim)
             ncfile.setncattr("number_of_files", num_files)
             ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
-
-            for key, value in common_attrs.items():
-                ncfile.setncattr(key, value)
+            ncfile.setncatts(common_attrs)
 
             # Only first block gets history
             if block_idx == 0 and history:
