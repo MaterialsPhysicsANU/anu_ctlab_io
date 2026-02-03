@@ -1,5 +1,6 @@
 """Write data to the ANU CTLab zarr data format."""
 
+import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -8,6 +9,7 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
+from dask.array.core import PerformanceWarning
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
@@ -157,7 +159,6 @@ def _calculate_chunks_and_shards(
     - outer_shards (shards param) = how data is split into shard files
 
     This algorithm:
-    - Enforces minimum 2 slices per chunk for compression efficiency
     - Keeps xy planes intact (critical for CT data access patterns)
     - Makes outer shards multiples of inner chunks for alignment
 
@@ -176,12 +177,6 @@ def _calculate_chunks_and_shards(
     z_inner = max(1, int(inner_target_bytes / bytes_per_slice))
     z_inner = min(z_inner, zdim)
 
-    # Enforce minimum 2 slices per chunk for better compression efficiency
-    # Single-slice chunks compress poorly (30-50% worse than 2+ slices)
-    MIN_Z_SLICES = 2
-    z_inner = max(MIN_Z_SLICES, z_inner)
-    z_inner = min(z_inner, zdim)
-
     inner_chunks = (z_inner, ydim, xdim)
 
     # Calculate outer shard size (how data is split into files)
@@ -198,24 +193,6 @@ def _calculate_chunks_and_shards(
         multiple = max(1, z_outer // z_inner)
         z_outer = z_inner * multiple
         z_outer = min(z_outer, zdim)
-
-    # CRITICAL: Ensure z_outer divides evenly into zdim to avoid writer race conditions
-    # Dask's parallel writes can corrupt data if chunks don't align with shard boundaries
-    if zdim % z_outer != 0:
-        # Find the largest divisor of zdim that is <= z_outer and a multiple of z_inner
-        for candidate in range(z_outer, z_inner - 1, -1):
-            if zdim % candidate == 0 and candidate % z_inner == 0:
-                z_outer = candidate
-                break
-        else:
-            # If no suitable divisor found, find any divisor of zdim >= z_inner
-            for candidate in range(z_inner, zdim + 1):
-                if zdim % candidate == 0:
-                    z_outer = candidate
-                    break
-            else:
-                # Last resort: use zdim itself (single shard)
-                z_outer = zdim
 
     outer_shards = (z_outer, ydim, xdim)
 
@@ -329,7 +306,16 @@ def _write_ome_zarr_group(
     if data_array.chunksize != outer_shards:
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    # Suppress false-positive performance warning from current Dask v2026.1.2
+    # The warning incorrectly triggers when final chunks are at array boundaries.
+    # Fixed in: https://github.com/dask/dask/pull/12262
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The input Dask array .*rechunked along axis.*",
+            category=PerformanceWarning,
+        )
+        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
 
 
 def _write_zarr_array(
@@ -375,4 +361,13 @@ def _write_zarr_array(
     if data_array.chunksize != outer_shards:
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    # Suppress false-positive performance warning from current Dask v2026.1.2
+    # The warning incorrectly triggers when final chunks are at array boundaries.
+    # Fixed in: https://github.com/dask/dask/pull/12262
+    with warnings.catch_warnings():
+        warnings.filterwarnings(
+            "ignore",
+            message=r"The input Dask array .*rechunked along axis.*",
+            category=PerformanceWarning,
+        )
+        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]

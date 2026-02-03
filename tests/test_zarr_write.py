@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 try:
+    from dask.array.core import PerformanceWarning
+
     import anu_ctlab_io.zarr
 
     _HAS_ZARR = True
@@ -550,3 +552,57 @@ def test_user_shapes_used_without_validation():
         # Data should still be readable
         read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert read_dataset.data.shape == shape
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_no_false_warning_with_remainder_chunks():
+    """Test that no false-positive warning occurs when shards don't divide evenly into array size.
+
+    This is a regression test for the Dask Zarr write warning bug that was fixed in:
+    https://github.com/dask/dask/pull/12262
+
+    The old Dask code would warn even when final chunks are at array boundaries (safe case).
+    The fixed Dask code only warns when chunks are truly misaligned within the array.
+    """
+    # Use a shape where automatic chunking produces remainder chunks
+    shape = (105, 50, 60)
+    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "remainder_test.zarr"
+
+        # Use automatic chunking with parameters that produce non-divisible shards
+        import warnings
+
+        with warnings.catch_warnings(record=True) as w:
+            warnings.simplefilter("always")
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                chunk_size_mb=0.5,  # Small chunks
+                max_shard_size_mb=1.0,  # Small shards to trigger remainder
+            )
+
+            # Verify no PerformanceWarning was raised (it should be suppressed)
+            perf_warnings = [
+                warning
+                for warning in w
+                if issubclass(warning.category, PerformanceWarning | UserWarning)
+            ]
+            assert len(perf_warnings) == 0, (
+                f"Unexpected warnings raised: {[str(w.message) for w in perf_warnings]}"
+            )
+
+        # Verify the write succeeded and data is correct
+        assert output_path.exists()
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data.compute())
