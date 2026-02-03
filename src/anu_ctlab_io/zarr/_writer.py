@@ -199,24 +199,6 @@ def _calculate_chunks_and_shards(
         z_outer = z_inner * multiple
         z_outer = min(z_outer, zdim)
 
-    # CRITICAL: Ensure z_outer divides evenly into zdim to avoid writer race conditions
-    # Dask's parallel writes can corrupt data if chunks don't align with shard boundaries
-    if zdim % z_outer != 0:
-        # Find the largest divisor of zdim that is <= z_outer and a multiple of z_inner
-        for candidate in range(z_outer, z_inner - 1, -1):
-            if zdim % candidate == 0 and candidate % z_inner == 0:
-                z_outer = candidate
-                break
-        else:
-            # If no suitable divisor found, find any divisor of zdim >= z_inner
-            for candidate in range(z_inner, zdim + 1):
-                if zdim % candidate == 0:
-                    z_outer = candidate
-                    break
-            else:
-                # Last resort: use zdim itself (single shard)
-                z_outer = zdim
-
     outer_shards = (z_outer, ydim, xdim)
 
     return inner_chunks, outer_shards
@@ -326,10 +308,10 @@ def _write_ome_zarr_group(
         **create_array_kwargs,
     )
 
-    if data_array.chunksize != outer_shards:
-        data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
+    write_shape = array.shards if array.shards else array.chunks
+    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
-    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
 
 
 def _write_zarr_array(
@@ -372,7 +354,7 @@ def _write_zarr_array(
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    if data_array.chunksize != outer_shards:
-        data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
+    write_shape = array.shards if array.shards else array.chunks
+    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
-    data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
