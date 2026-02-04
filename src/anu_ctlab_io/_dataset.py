@@ -406,7 +406,6 @@ class Dataset(AbstractDataset):
         This has better performance than manually creating a masked_array using `mask` in the case
         that the loaded datatype has no mask (i.e., OME-Zarr data), as it creates a masked array
         with `nomask` in these situations."""
-        print(self._datatype)
         return cast(
             da.Array,
             da.ma.masked_array(self._data, mask=self.mask)

@@ -19,7 +19,6 @@ from anu_ctlab_io.zarr._writer import OMEZarrVersion, dataset_to_zarr
 if importlib.util.find_spec("ome_zarr_models") is None:
     raise ImportError("ome-zarr-models could not be imported.")
 
-from anu_ctlab_io.zarr._writer import dataset_to_zarr
 
 __all__ = ["OMEZarrVersion", "dataset_from_zarr", "dataset_to_zarr"]
 
