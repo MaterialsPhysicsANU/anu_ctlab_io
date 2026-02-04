@@ -226,9 +226,9 @@ def _write_split_netcdf(
                 complevel=compression_level,
             )
 
-            block_data = data_array[z_start : z_end + 1, :, :]
-            delayed_writes.append(da.store(block_data, data_var))
-        dask.compute(*delayed_writes)  # type: ignore[attr-defined, no-untyped-call]
+        block_data = data_array[z_start : z_end + 1, :, :]
+        delayed_writes.append(da.store(block_data, data_var))
+    dask.compute(*delayed_writes)  # type: ignore[attr-defined, no-untyped-call]
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
