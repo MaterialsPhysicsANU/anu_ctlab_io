@@ -9,18 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_zarr()` function
+- Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_netcdf()` function
 - Add zarr writing via the `anu_ctlab_io.zarr.dataset_to_zarr()` function (defaults to OME-Zarr format)
 - Add `Dataset.to_path()` to write to both zarr and netcdf formats
 - Add badges to docs/introduction.rst
 - Add `py312-dask-dev` test environment to test against fixed Dask warning logic
+- Added warning suppression for false-positive Dask PerformanceWarning when writing Zarr arrays
 
 ### Changed
-
-- Simplified Zarr sharding algorithm in `_calculate_chunks_and_shards()` by removing overly conservative constraints
-- Removed MIN_Z_SLICES=2 constraint (now allows single-slice chunks)
-- Removed complex divisibility logic that forced shards to evenly divide array size
-- Added warning suppression for false-positive Dask PerformanceWarning when writing Zarr arrays (fixed in Dask 2026.2.0+)
 
 ## [1.1.0] - 2025-12-15
 
