@@ -250,6 +250,7 @@ def _write_ome_zarr_group(
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
+
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
 
