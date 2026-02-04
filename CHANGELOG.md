@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-02-04
+
 ### Added
 
 - Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_netcdf()` function
@@ -123,7 +125,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for reading ANU CTLab NetCDF files
 - Support for outputting Xarray data
 
-[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.1.0...HEAD
+[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.1.0
 [1.0.1]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.0
