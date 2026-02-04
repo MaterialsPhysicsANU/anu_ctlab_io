@@ -177,3 +177,65 @@ def test_write_split_replaces_nc_extension():
         read_dataset = anu_ctlab_io.Dataset.from_path(expected_dir, parse_history=False)
         assert read_dataset.data.shape == shape
         assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+def test_netcdf_history_roundtrip():
+    """Test that history is preserved when reading and writing NetCDF files.
+
+    This test verifies that:
+    1. History is parsed correctly when reading a NetCDF with history
+    2. History is serialized correctly when writing back to NetCDF
+    3. The roundtrip preserves the history structure (minor whitespace differences may occur)
+    """
+    # Load original NetCDF file with history
+    original_path = Path("tests/data/tomoLoRes_SS.nc")
+    original_dataset = anu_ctlab_io.Dataset.from_path(original_path, parse_history=True)
+
+    # Verify original has parsed history (dict, not str)
+    assert isinstance(original_dataset.history, dict)
+    assert len(original_dataset.history) > 0
+
+    # Store original history for comparison
+    original_history = original_dataset.history
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # Write to NetCDF
+        output_path = Path(tmpdir) / "tomo_history_test.nc"
+        anu_ctlab_io.netcdf.dataset_to_netcdf(
+            original_dataset,
+            output_path,
+            dataset_id="history_roundtrip_test",
+        )
+
+        # Read back with history parsing enabled (default)
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path, parse_history=True)
+
+        # Verify history was preserved
+        assert isinstance(read_dataset.history, dict)
+        assert len(read_dataset.history) == len(original_history)
+
+        # Check that all history keys are preserved
+        assert set(read_dataset.history.keys()) == set(original_history.keys())
+
+        # Verify the structure of parsed history entries
+        # Note: Minor whitespace differences may occur in values due to angle bracket
+        # stripping/serialization, but the semantic content should be preserved
+        for key in original_history.keys():
+            if key in read_dataset.history:
+                # Both should be parsed dicts (not raw strings)
+                assert isinstance(original_history[key], dict)
+                assert isinstance(read_dataset.history[key], dict)
+                # They should have the same keys
+                assert set(original_history[key].keys()) == set(
+                    read_dataset.history[key].keys()
+                )
+                # Values should be semantically equivalent (allowing for whitespace normalization)
+                for subkey in original_history[key].keys():
+                    orig_val = original_history[key][subkey]
+                    read_val = read_dataset.history[key][subkey]
+                    # For string values, normalize whitespace before comparing
+                    if isinstance(orig_val, str) and isinstance(read_val, str):
+                        assert orig_val.strip() == read_val.strip()
+                    else:
+                        assert orig_val == read_val

@@ -12,7 +12,7 @@ import xarray as xr
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
-from anu_ctlab_io._parse_history import parse_history
+from anu_ctlab_io._parse_history import parse_history, serialize_history
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
 if (
@@ -23,7 +23,12 @@ if (
 
 from anu_ctlab_io.netcdf._writer import dataset_to_netcdf
 
-__all__ = ["dataset_from_netcdf", "dataset_to_netcdf"]
+__all__ = [
+    "dataset_from_netcdf",
+    "dataset_to_netcdf",
+    "parse_history",
+    "serialize_history",
+]
 
 
 def dataset_from_netcdf(
@@ -42,6 +47,7 @@ def dataset_from_netcdf(
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))
     dataset["data"] = dataset.data.astype(datatype.dtype)
     dataset.attrs = _update_attrs(dataset.attrs, parse_history)
+    dataset_id = dataset.attrs.get("dataset_id")
     return Dataset(
         data=dataset.data.data,
         dimension_names=tuple(
@@ -51,6 +57,8 @@ def dataset_from_netcdf(
         voxel_unit=VoxelUnit.from_str(dataset.attrs["voxel_unit"]),
         voxel_size=dataset.attrs["voxel_size"],
         history=dataset.history,
+        dataset_id=dataset_id,
+        source_format="netcdf",
     )
 
 

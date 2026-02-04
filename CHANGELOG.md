@@ -15,8 +15,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add badges to docs/introduction.rst
 - Add `py312-dask-dev` test environment to test against fixed Dask warning logic
 - Added warning suppression for false-positive Dask PerformanceWarning when writing Zarr arrays
+- Add `serialize_history()` function for converting parsed history dicts back to strings
+- Add `Dataset.add_to_history()` method for adding history entries to datasets
+- Add `Dataset.update_history()` method for bulk updating history entries
+- Add `Dataset.from_modified()` classmethod for creating modified datasets with automatic history tracking
+- Add `dataset_id` property to `Dataset` for tracking source file identifiers
+- Add `source_format` property to `Dataset` for tracking file format origin ("netcdf" or "zarr")
+- Add `Dataset.save()` method for auto-generating output paths from dataset_id
 
 ### Changed
+
+- NetCDF writer now automatically serializes parsed history dicts when writing
+
+### Fixed
+
+- Fixed history parser to handle both structured (BeginSection/EndSection) and log-style formats
+- History parser now always returns `dict`, never `str`
+- History parser converts Token objects to native Python types (str, bool, int, float, list)
+- Angle brackets in history values are now stripped: `<value>` → `value`
+- Multiple angle brackets in history values are now parsed as lists: `<v1><v2><v3>` → `[v1, v2, v3]`
+- Repeated keys in log-style histories are now parsed as lists
+- Unstructured text in log histories is now stored in the `_log_text` key
 
 ## [1.1.0] - 2025-12-15
 
