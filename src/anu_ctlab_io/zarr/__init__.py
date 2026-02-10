@@ -2,7 +2,6 @@
 
 This is an optional extra module, and must be explicitly installed to be used (e.g., ``pip install anu_ctlab_io[zarr]``)."""
 
-import importlib.util
 from collections.abc import Mapping
 from pathlib import Path
 from typing import Any
@@ -10,16 +9,13 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
+from ome_zarr_models.v05.multiscales import ValidTransform
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import History
 from anu_ctlab_io._voxel_properties import VoxelUnit
 from anu_ctlab_io.zarr._writer import OMEZarrVersion, dataset_to_zarr
-
-if importlib.util.find_spec("ome_zarr_models") is None:
-    raise ImportError("ome-zarr-models could not be imported.")
-
 
 __all__ = ["OMEZarrVersion", "dataset_from_zarr", "dataset_to_zarr"]
 
@@ -110,7 +106,7 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
 
     # Calculate the voxel size from the transformations
     def extract_vector_scale(
-        transformations: Any,
+        transformations: "ValidTransform | None",
     ) -> tuple[float, float, float]:
         """Extracts the scale from a list of coordinate transformations, expects VectorScale."""
         from ome_zarr_models.common.coordinate_transformations import VectorScale
