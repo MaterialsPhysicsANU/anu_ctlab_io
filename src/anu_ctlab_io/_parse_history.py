@@ -31,7 +31,15 @@ type Section = dict[Token, SectionContents]
 type SectionContents = dict[Token, Token | SectionContents | None]
 type LogValue = str | list[str]
 type LogContents = dict[str, LogValue]
-type History = dict[str, Any]
+type HistoryValue = (
+    str
+    | bool
+    | int
+    | float
+    | list[str | bool | int | float | dict[str, Any]]
+    | dict[str, "HistoryValue"]
+)
+type History = dict[str, HistoryValue]
 
 
 class _StructuredTransformer(Transformer[Token, History]):
@@ -56,9 +64,9 @@ class _StructuredTransformer(Transformer[Token, History]):
         return d
 
 
-def _parse_log_format(history: str) -> dict[str, Any]:
+def _parse_log_format(history: str) -> History:
     """Parse log-style history using simple Python regex."""
-    result: dict[str, Any] = {}
+    result: History = {}
     log_texts: list[str] = []
 
     for line in history.strip().split("\n"):
@@ -89,7 +97,7 @@ def _parse_log_format(history: str) -> dict[str, Any]:
             log_texts.append(line)
 
     if log_texts:
-        result["_log_text"] = log_texts
+        result["_log_text"] = log_texts  # type: ignore[assignment]
 
     return result
 
@@ -166,9 +174,9 @@ def _strip_angle_brackets(value: str) -> Any:
     return value
 
 
-def _convert_log_values(obj: dict[str, Any]) -> dict[str, Any]:
+def _convert_log_values(obj: History) -> History:
     """Convert log values, converting booleans."""
-    result: dict[str, Any] = {}
+    result: History = {}
 
     for key, value in obj.items():
         if key == "_log_text":
@@ -197,7 +205,7 @@ def _convert_log_values(obj: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
-def parse_history(history: str) -> dict[str, Any]:
+def parse_history(history: str) -> History:
     """Parse MANGO history attribute into a dictionary.
 
     Handles both structured (BeginSection/EndSection) and log-style formats.
@@ -222,7 +230,7 @@ def parse_history(history: str) -> dict[str, Any]:
         try:
             parsed = _structured_parser.parse(history)
             transformed = _StructuredTransformer().transform(parsed)
-            result: dict[str, Any] = _convert_tokens_to_values(transformed)
+            result: History = _convert_tokens_to_values(transformed)
             return result
         except Exception:
             pass
@@ -240,7 +248,7 @@ def parse_history(history: str) -> dict[str, Any]:
     return {"_raw_history": history.strip()}
 
 
-def serialize_history(history_dict: dict[str, Any], *, indent: int = 4) -> str:
+def serialize_history(history_dict: History, *, indent: int = 4) -> str:
     """Serialize a parsed history dictionary back to string format.
 
     Handles both structured (BeginSection/EndSection) and log-style formats.
@@ -273,7 +281,7 @@ def serialize_history(history_dict: dict[str, Any], *, indent: int = 4) -> str:
         return _serialize_log(history_dict)
 
 
-def _serialize_structured(data: dict[str, Any], indent: int = 4, level: int = 0) -> str:
+def _serialize_structured(data: History, indent: int = 4, level: int = 0) -> str:
     """Serialize structured BeginSection/EndSection format."""
     lines: list[str] = []
     indent_str = " " * (indent * level)
@@ -302,7 +310,7 @@ def _serialize_structured(data: dict[str, Any], indent: int = 4, level: int = 0)
     return result
 
 
-def _serialize_log(data: dict[str, Any]) -> str:
+def _serialize_log(data: History) -> str:
     """Serialize log-style key: value format."""
     lines: list[str] = []
 
@@ -310,7 +318,8 @@ def _serialize_log(data: dict[str, Any]) -> str:
         if key == "_log_text":
             # Unstructured text - output as-is
             if isinstance(value, list):
-                lines.extend(value)
+                # _log_text is always list[str]
+                lines.extend(str(v) for v in value)
             else:
                 lines.append(str(value))
         elif isinstance(value, list):

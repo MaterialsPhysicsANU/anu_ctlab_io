@@ -11,7 +11,7 @@ import numpy as np
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
-from anu_ctlab_io._parse_history import serialize_history
+from anu_ctlab_io._parse_history import History, serialize_history
 
 
 def dataset_to_netcdf(
@@ -21,7 +21,7 @@ def dataset_to_netcdf(
     dataset_id: str | None = None,
     max_file_size_mb: float | None = None,
     compression_level: int = 0,
-    history: dict[str, Any] | None = None,
+    history: History | None = None,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to netcdf format.

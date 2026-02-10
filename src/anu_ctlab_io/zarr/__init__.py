@@ -13,6 +13,7 @@ import zarr
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._parse_history import History
 from anu_ctlab_io._voxel_properties import VoxelUnit
 from anu_ctlab_io.zarr._writer import OMEZarrVersion, dataset_to_zarr
 
@@ -136,7 +137,7 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
     if "mango" not in zg.attrs:
         # Handle a plain OME-Zarr dataset that has no mango attributes
         datatype = None
-        history: dict[str, Any] = {}
+        history: History = {}
         dataset_id = None
     else:
         mango_attrs = zg.attrs["mango"]
@@ -150,7 +151,6 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
                 f'Expected mango "basename" to be a str, got {type(basename)}'
             ) from None
         datatype = DataType.from_basename(basename)
-        # NOTE: Should refine history from Any to JSON
         history = mango_attrs["history"]  # type: ignore[assignment]
         dataset_id_raw = mango_attrs.get("dataset_id")
         dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None

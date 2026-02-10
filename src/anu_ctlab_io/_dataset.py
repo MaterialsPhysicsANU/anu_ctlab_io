@@ -9,6 +9,7 @@ import dask.array as da
 import numpy as np
 
 from anu_ctlab_io._datatype import DataType, StorageDType
+from anu_ctlab_io._parse_history import History, HistoryValue
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
 
@@ -97,7 +98,7 @@ class Dataset(AbstractDataset):
         voxel_unit: VoxelUnit,
         voxel_size: tuple[np.float32, np.float32, np.float32],
         datatype: DataType | None = None,
-        history: dict[str, Any] | None = None,
+        history: History | None = None,
         dataset_id: str | None = None,
         source_format: str | None = None,
     ) -> None:
@@ -413,7 +414,7 @@ class Dataset(AbstractDataset):
             else da.ma.masked_array(self._data),
         )
 
-    def add_to_history(self, key: str, value: dict[str, Any] | str) -> None:
+    def add_to_history(self, key: str, value: HistoryValue) -> None:
         """Add an entry to the dataset's history metadata.
 
         This method mutates the dataset in-place by adding a new history entry.
@@ -438,7 +439,7 @@ class Dataset(AbstractDataset):
             self._history = {}
         self._history[key] = value
 
-    def update_history(self, entries: dict[str, dict[str, Any] | str]) -> None:
+    def update_history(self, entries: dict[str, HistoryValue]) -> None:
         """Update the dataset's history with multiple entries at once.
 
         This method mutates the dataset in-place by adding multiple history entries.
@@ -468,7 +469,7 @@ class Dataset(AbstractDataset):
         voxel_unit: VoxelUnit | None = None,
         dimension_names: tuple[str, ...] | None = None,
         datatype: DataType | None = None,
-        history_entry: dict[str, Any] | str | None = None,
+        history_entry: HistoryValue | None = None,
         history_key: str | None = None,
         dataset_id_suffix: str | None = None,
     ) -> "Dataset":
