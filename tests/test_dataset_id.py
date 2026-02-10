@@ -259,8 +259,8 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        # Save with default suffix
-        output_path = ds.save(directory=tmp_path)
+        # Save with explicit suffix
+        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
 
         # Check filename doesn't contain timestamp
         assert output_path.name == "tomoLoRes_SS_CTLAB_IO.nc"
@@ -276,7 +276,7 @@ class TestSaveMethod:
         original_id = ds.dataset_id
 
         # Save and read back
-        output_path = ds.save(directory=tmp_path)
+        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
         ds2 = Dataset.from_path(output_path)
 
         # Metadata should preserve full dataset_id with timestamp
@@ -303,7 +303,7 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        output_path = ds.save(format="zarr", directory=tmp_path)
+        output_path = ds.save(suffix="_CTLAB_IO", format="zarr", directory=tmp_path)
         assert output_path.name == "tomoLoRes_SS_CTLAB_IO.zarr"
         assert output_path.exists()
 
@@ -316,7 +316,7 @@ class TestSaveMethod:
         ds = Dataset.from_path(test_file)
 
         # Don't specify format - should use source format (netcdf)
-        output_path = ds.save(directory=tmp_path)
+        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
         assert output_path.suffix == ".nc"
 
     def test_save_raises_without_dataset_id(self, tmp_path):
@@ -334,7 +334,7 @@ class TestSaveMethod:
         )
 
         with pytest.raises(ValueError, match="Cannot auto-generate filename"):
-            ds.save(directory=tmp_path)
+            ds.save(suffix="_test", directory=tmp_path)
 
     def test_save_returns_path(self, tmp_path):
         """Test that save() returns the Path to the written file."""
@@ -344,7 +344,7 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        output_path = ds.save(directory=tmp_path)
+        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
         assert isinstance(output_path, Path)
         assert output_path.exists()
 
@@ -370,7 +370,7 @@ class TestSaveMethod:
             history=ds._history,
         )
 
-        output_path = new_ds.save(directory=tmp_path)
+        output_path = new_ds.save(suffix="_CTLAB_IO", directory=tmp_path)
 
         # New format should be used as-is (no timestamp to strip)
         assert output_path.name == "0-00000_gb1_CTLAB_IO.nc"

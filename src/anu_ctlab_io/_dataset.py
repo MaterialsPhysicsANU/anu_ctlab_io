@@ -262,7 +262,7 @@ class Dataset(AbstractDataset):
 
     def save(
         self,
-        suffix: str = "_CTLAB_IO",
+        suffix: str,
         format: str | None = None,
         directory: Path | str = ".",
         **kwargs: Any,
@@ -272,7 +272,7 @@ class Dataset(AbstractDataset):
         Generates a filename based on the dataset_id, stripping old-format timestamps
         for cleaner paths while preserving them in file metadata for provenance.
 
-        :param suffix: Suffix to append to the base name. Defaults to "_CTLAB_IO".
+        :param suffix: Suffix to append to the base name.
         :param format: Output format ("netcdf" or "zarr"). If None, uses source_format or defaults to "netcdf".
         :param directory: Directory to write the file to. Defaults to current directory.
         :param kwargs: Additional arguments passed to the format writer.
@@ -282,10 +282,10 @@ class Dataset(AbstractDataset):
         Example::
 
             # Old format: "20250314_012913_tomoLoRes_SS"
-            # output filename: "tomoLoRes_SS_CTLAB_IO.nc"
+            # output filename: "tomoLoRes_SS_processed.nc"
             # dataset_id in file: "20250314_012913_tomoLoRes_SS"
             ds = Dataset.from_path("file.nc")
-            output_path = ds.save()
+            output_path = ds.save(suffix="_processed")
 
             # New format: "0-00000_gb1"
             # Output filename: "0-00000_gb1__processed.zarr"
