@@ -19,7 +19,7 @@ def dataset_to_netcdf(
     path: Path | str,
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
-    max_file_size_mb: float | None = None,
+    max_file_size_mb: float | None = 500.0,
     compression_level: int = 0,
     history: History | None = None,
     **extra_attrs: Any,
@@ -31,7 +31,9 @@ def dataset_to_netcdf(
     :param datatype: The data type identifier. If None, attempts to infer from dataset.
     :param dataset_id: Unique identifier for the dataset. Auto-generated if not provided.
     :param max_file_size_mb: Maximum file size in MB. If specified and data exceeds this,
-        it will be split along the z-axis. If None, writes a single file.
+        it will be split along the z-axis into multiple block files in a directory.
+        Default is 500.0 MB to avoid memory issues with large datasets.
+        Set to None to force single file output.
     :param compression_level: NetCDF compression level (0-9). Default is 0 (no compression),
         because NetCDF compression is really slow.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
@@ -43,6 +45,11 @@ def dataset_to_netcdf(
         This function uses a single-threaded dask scheduler for writes to avoid
         NetCDF4's parallel write limitations. The HDF5 library used by NetCDF4
         doesn't support multiple threads writing to the same file simultaneously.
+
+    .. note::
+        By default, large datasets are split into multiple files (~500MB each) to
+        reduce memory usage during writes. Small datasets (<500MB) are written as
+        a single file. To force single file output, set max_file_size_mb=None.
     """
     if isinstance(path, str):
         path = Path(path)
