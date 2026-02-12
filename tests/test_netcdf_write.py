@@ -1,6 +1,7 @@
 import tempfile
 from pathlib import Path
 
+import dask
 import dask.array as da
 import numpy as np
 import pytest
@@ -239,3 +240,65 @@ def test_netcdf_history_roundtrip():
                         assert orig_val.strip() == read_val.strip()
                     else:
                         assert orig_val == read_val
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+def test_netcdf_write_with_parallel_dask_config():
+    """Test that NetCDF writes work correctly even with parallel dask configuration.
+
+    This simulates the Gadi scenario where dask is configured with many workers
+    but NetCDF writes must be single-threaded to avoid HDF errors.
+    """
+    # Create test dataset with moderate size
+    shape = (50, 100, 100)
+    # Use chunked array to trigger parallel computation
+    data = da.from_array(
+        np.random.randint(0, 65535, size=shape, dtype=np.uint16), chunks=(10, 50, 50)
+    )
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.03374304, 0.03374304, 0.03374304),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    # Configure dask with many threads to simulate Gadi environment
+    with dask.config.set(num_workers=8, scheduler="threads"):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Test single file write
+            single_path = Path(tmpdir) / "tomo_parallel_test.nc"
+            anu_ctlab_io.netcdf.dataset_to_netcdf(
+                dataset,
+                single_path,
+                dataset_id="parallel_test",
+            )
+
+            # Verify single file was written correctly
+            read_single = anu_ctlab_io.Dataset.from_path(
+                single_path, parse_history=False
+            )
+            assert read_single.data.shape == shape
+            assert np.array_equal(read_single.data.compute(), data.compute())
+
+            # Test split file write
+            # Each z-slice is 100*100*2 bytes = 20000 bytes = 0.02 MB
+            # Set max to 0.1 MB to get ~5 slices per file -> 10 files total
+            split_path = Path(tmpdir) / "tomo_parallel_split"
+            anu_ctlab_io.netcdf.dataset_to_netcdf(
+                dataset,
+                split_path,
+                dataset_id="parallel_split_test",
+                max_file_size_mb=0.1,  # Force splitting into multiple blocks
+            )
+
+            # Verify split files were written correctly
+            split_dir = Path(str(split_path) + "_nc")
+            assert split_dir.exists()
+            block_files = list(split_dir.glob("block*.nc"))
+            assert len(block_files) > 1
+
+            read_split = anu_ctlab_io.Dataset.from_path(split_dir, parse_history=False)
+            assert read_split.data.shape == shape
+            assert np.array_equal(read_split.data.compute(), data.compute())

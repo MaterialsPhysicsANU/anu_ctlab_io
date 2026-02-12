@@ -38,6 +38,11 @@ def dataset_to_netcdf(
         values can be history strings or parsed history dicts (which will be serialized).
         If None, uses the dataset's history attribute.
     :param extra_attrs: Additional global attributes to include.
+
+    .. note::
+        This function uses a single-threaded dask scheduler for writes to avoid
+        NetCDF4's parallel write limitations. The HDF5 library used by NetCDF4
+        doesn't support multiple threads writing to the same file simultaneously.
     """
     if isinstance(path, str):
         path = Path(path)
@@ -170,8 +175,10 @@ def _write_single_netcdf(
             complevel=compression_level,
         )
 
-        # Write data using da.store for chunked computation without loading entire array
-        da.store(data_array, data_var, compute=True)
+        # Write data using single-threaded scheduler to avoid NetCDF parallel write conflicts
+        # NetCDF4 doesn't support parallel writes to the same file
+        with dask.config.set(scheduler="synchronous"):
+            da.store(data_array, data_var, compute=True)
 
 
 def _write_split_netcdf(
@@ -183,7 +190,11 @@ def _write_split_netcdf(
     compression_level: int,
     history: dict[str, str] | None,
 ) -> None:
-    """Write split netcdf files into a directory."""
+    """Write split netcdf files into a directory.
+
+    Each block is written sequentially with a single-threaded scheduler to avoid
+    NetCDF parallel write conflicts within each file.
+    """
     # Create directory with _nc suffix
     # If path ends with .nc, replace it with _nc
     path_str = str(base_path)
@@ -200,8 +211,8 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
     datatype_str = str(datatype)
 
-    delayed_writes = []
-
+    # Write each block sequentially with single-threaded scheduler
+    # This avoids NetCDF parallel write conflicts within each file
     for block_idx in range(num_files):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
@@ -242,9 +253,10 @@ def _write_split_netcdf(
                 complevel=compression_level,
             )
 
+            # Write block data with single-threaded scheduler
             block_data = data_array[z_start : z_end + 1, :, :]
-            delayed_writes.append(da.store(block_data, data_var))
-    dask.compute(*delayed_writes)  # type: ignore[attr-defined, no-untyped-call]
+            with dask.config.set(scheduler="synchronous"):
+                da.store(block_data, data_var, compute=True)
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
