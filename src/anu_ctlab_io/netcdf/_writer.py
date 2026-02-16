@@ -47,13 +47,8 @@ def _write_netcdf_data(data_array: da.Array, netcdf_var: nc4.Variable) -> None:
         netcdf_var: NetCDF variable to write to
     """
     try:
-        from distributed import (
-            Lock as DistributedLock,
-        )
-        from distributed import (
-            as_completed,
-            get_client,
-        )
+        from distributed import Lock as DistributedLock
+        from distributed import as_completed, get_client
 
         client = get_client()  # Raises ValueError if no client
 
