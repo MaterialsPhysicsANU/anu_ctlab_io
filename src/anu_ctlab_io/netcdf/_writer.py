@@ -1,10 +1,12 @@
 """Write data to the ANU CTLab netcdf data format."""
 
+from __future__ import annotations
+
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import dask
 import dask.array as da
 import netCDF4 as nc4  # type: ignore[import-not-found]
 import numpy as np
@@ -12,6 +14,112 @@ import numpy as np
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import History, serialize_history
+
+
+def _get_block_slices(array: da.Array) -> list[tuple[slice, ...]]:
+    """Get slice objects for each block in a dask array.
+
+    Args:
+        array: Dask array with defined chunks
+
+    Returns:
+        List of tuples of slices, one per block
+    """
+    slices = []
+    for block_id in np.ndindex(array.numblocks):
+        block_slices = tuple(
+            slice(sum(array.chunks[dim][:idx]), sum(array.chunks[dim][: idx + 1]))
+            for dim, idx in enumerate(block_id)
+        )
+        slices.append(block_slices)
+    return slices
+
+
+def _write_netcdf_data(data_array: da.Array, netcdf_var: nc4.Variable) -> None:
+    """Write dask array to NetCDF variable using appropriate strategy for scheduler.
+
+    Strategy selection:
+    - Distributed scheduler: Compute chunks on workers, write on client
+    - Synchronous/threaded: Use LockedNetCDFVariable with current scheduler
+
+    Args:
+        data_array: Dask array to write
+        netcdf_var: NetCDF variable to write to
+    """
+    try:
+        from distributed import (
+            Lock as DistributedLock,
+        )
+        from distributed import (
+            as_completed,
+            get_client,
+        )
+
+        client = get_client()  # Raises ValueError if no client
+
+        lock = DistributedLock("netcdf_write")
+        delayed_blocks = data_array.to_delayed().flatten()  # type: ignore[no-untyped-call]
+        block_slices = _get_block_slices(data_array)
+
+        future_to_slices = {
+            client.compute(block): slices
+            for block, slices in zip(delayed_blocks, block_slices, strict=True)
+        }
+
+        for future in as_completed(future_to_slices):
+            result = future.result()  # Get computed chunk
+            slices = future_to_slices[future]
+            with lock:
+                netcdf_var[slices] = result
+
+    except (ImportError, ValueError):
+        # No distributed client - use locked wrapper
+        locked_var = LockedNetCDFVariable(netcdf_var)
+        da.store(data_array, locked_var, compute=True)  # type: ignore[arg-type]
+
+
+class LockedNetCDFVariable:
+    """Thread-safe wrapper for NetCDF variables.
+
+    Serializes write operations to prevent HDF5/NetCDF4 concurrent write
+    conflicts while allowing dask to schedule computation in parallel.
+
+    The HDF5 library used by NetCDF4 doesn't support multiple threads
+    writing to the same file simultaneously. This wrapper uses a lock
+    to serialize write operations while allowing dask to compute chunks
+    in parallel with any scheduler (synchronous, threaded, or distributed).
+
+    Args:
+        netcdf_var: NetCDF variable to wrap
+        lock: Optional threading.Lock. Creates new lock if not provided.
+
+    Example:
+        >>> with nc4.Dataset('file.nc', 'w') as ncfile:
+        ...     var = ncfile.createVariable('data', 'f4', ('z', 'y', 'x'))
+        ...     locked_var = LockedNetCDFVariable(var)
+        ...     da.store(dask_array, locked_var, compute=True)
+    """
+
+    def __init__(
+        self, netcdf_var: nc4.Variable, lock: threading.Lock | None = None
+    ) -> None:
+        self.var = netcdf_var
+        self.lock = lock if lock is not None else threading.Lock()
+
+    def __setitem__(self, key: Any, value: Any) -> None:
+        """Thread-safe write to NetCDF variable."""
+        with self.lock:
+            self.var[key] = value
+
+    @property
+    def shape(self) -> tuple[int, ...]:
+        """Pass through shape for dask compatibility."""
+        return self.var.shape  # type: ignore[no-any-return]
+
+    @property
+    def dtype(self) -> np.dtype[np.generic]:
+        """Pass through dtype for dask compatibility."""
+        return self.var.dtype  # type: ignore[no-any-return]
 
 
 def dataset_to_netcdf(
@@ -42,9 +150,9 @@ def dataset_to_netcdf(
     :param extra_attrs: Additional global attributes to include.
 
     .. note::
-        This function uses a single-threaded dask scheduler for writes to avoid
-        NetCDF4's parallel write limitations. The HDF5 library used by NetCDF4
-        doesn't support multiple threads writing to the same file simultaneously.
+        This function uses thread-safe locking for writes to handle NetCDF4's
+        parallel write limitations. The HDF5 library used by NetCDF4 doesn't
+        support multiple threads writing to the same file simultaneously.
 
     .. note::
         By default, large datasets are split into multiple files (~500MB each) to
@@ -182,10 +290,8 @@ def _write_single_netcdf(
             complevel=compression_level,
         )
 
-        # Write data using single-threaded scheduler to avoid NetCDF parallel write conflicts
-        # NetCDF4 doesn't support parallel writes to the same file
-        with dask.config.set(scheduler="synchronous"):
-            da.store(data_array, data_var, compute=True)
+        # Write data using scheduler-appropriate strategy
+        _write_netcdf_data(data_array, data_var)
 
 
 def _write_split_netcdf(
@@ -199,8 +305,8 @@ def _write_split_netcdf(
 ) -> None:
     """Write split netcdf files into a directory.
 
-    Each block is written sequentially with a single-threaded scheduler to avoid
-    NetCDF parallel write conflicts within each file.
+    Each block is written using a thread-safe locked wrapper to handle
+    NetCDF's parallel write limitations.
     """
     # Create directory with _nc suffix
     # If path ends with .nc, replace it with _nc
@@ -218,8 +324,6 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
     datatype_str = str(datatype)
 
-    # Write each block sequentially with single-threaded scheduler
-    # This avoids NetCDF parallel write conflicts within each file
     for block_idx in range(num_files):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
@@ -260,10 +364,9 @@ def _write_split_netcdf(
                 complevel=compression_level,
             )
 
-            # Write block data with single-threaded scheduler
+            # Write block data using scheduler-appropriate strategy
             block_data = data_array[z_start : z_end + 1, :, :]
-            with dask.config.set(scheduler="synchronous"):
-                da.store(block_data, data_var, compute=True)
+            _write_netcdf_data(block_data, data_var)
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
