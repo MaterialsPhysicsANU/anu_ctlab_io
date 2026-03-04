@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import threading
+import time
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import dask
 import dask.array as da
 import netCDF4 as nc4  # type: ignore[import-not-found]
 import numpy as np
@@ -16,83 +18,10 @@ from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import History, serialize_history
 
 
-def _get_block_slices(array: da.Array) -> list[tuple[slice, ...]]:
-    """Get slice objects for each block in a dask array.
-
-    Args:
-        array: Dask array with defined chunks
-
-    Returns:
-        List of tuples of slices, one per block
-    """
-    slices = []
-    for block_id in np.ndindex(array.numblocks):
-        block_slices = tuple(
-            slice(sum(array.chunks[dim][:idx]), sum(array.chunks[dim][: idx + 1]))
-            for dim, idx in enumerate(block_id)
-        )
-        slices.append(block_slices)
-    return slices
-
-
-def _write_netcdf_data(data_array: da.Array, netcdf_var: nc4.Variable) -> None:
-    """Write dask array to NetCDF variable using appropriate strategy for scheduler.
-
-    Strategy selection:
-    - Distributed scheduler: Compute chunks on workers, write on client
-    - Synchronous/threaded: Use LockedNetCDFVariable with current scheduler
-
-    Args:
-        data_array: Dask array to write
-        netcdf_var: NetCDF variable to write to
-    """
-    try:
-        from distributed import Lock as DistributedLock
-        from distributed import as_completed, get_client
-
-        client = get_client()  # Raises ValueError if no client
-
-        lock = DistributedLock("netcdf_write")
-        delayed_blocks = data_array.to_delayed().flatten()  # type: ignore[no-untyped-call]
-        block_slices = _get_block_slices(data_array)
-
-        future_to_slices = {
-            client.compute(block): slices
-            for block, slices in zip(delayed_blocks, block_slices, strict=True)
-        }
-
-        for future in as_completed(future_to_slices):
-            result = future.result()  # Get computed chunk
-            slices = future_to_slices[future]
-            with lock:
-                netcdf_var[slices] = result
-
-    except (ImportError, ValueError):
-        # No distributed client - use locked wrapper
-        locked_var = LockedNetCDFVariable(netcdf_var)
-        da.store(data_array, locked_var, compute=True)  # type: ignore[arg-type]
-
-
 class LockedNetCDFVariable:
     """Thread-safe wrapper for NetCDF variables.
 
-    Serializes write operations to prevent HDF5/NetCDF4 concurrent write
-    conflicts while allowing dask to schedule computation in parallel.
-
-    The HDF5 library used by NetCDF4 doesn't support multiple threads
-    writing to the same file simultaneously. This wrapper uses a lock
-    to serialize write operations while allowing dask to compute chunks
-    in parallel with any scheduler (synchronous, threaded, or distributed).
-
-    Args:
-        netcdf_var: NetCDF variable to wrap
-        lock: Optional threading.Lock. Creates new lock if not provided.
-
-    Example:
-        >>> with nc4.Dataset('file.nc', 'w') as ncfile:
-        ...     var = ncfile.createVariable('data', 'f4', ('z', 'y', 'x'))
-        ...     locked_var = LockedNetCDFVariable(var)
-        ...     da.store(dask_array, locked_var, compute=True)
+    Serializes write operations to prevent HDF5/NetCDF4 concurrent write conflicts.
     """
 
     def __init__(
@@ -102,18 +31,15 @@ class LockedNetCDFVariable:
         self.lock = lock if lock is not None else threading.Lock()
 
     def __setitem__(self, key: Any, value: Any) -> None:
-        """Thread-safe write to NetCDF variable."""
         with self.lock:
             self.var[key] = value
 
     @property
     def shape(self) -> tuple[int, ...]:
-        """Pass through shape for dask compatibility."""
         return self.var.shape  # type: ignore[no-any-return]
 
     @property
     def dtype(self) -> np.dtype[np.generic]:
-        """Pass through dtype for dask compatibility."""
         return self.var.dtype  # type: ignore[no-any-return]
 
 
@@ -131,33 +57,19 @@ def dataset_to_netcdf(
 
     :param dataset: The :any:`Dataset` to write.
     :param path: Path to write the netcdf file or directory (if splitting).
-    :param datatype: The data type identifier. If None, attempts to infer from dataset.
-    :param dataset_id: Unique identifier for the dataset. Auto-generated if not provided.
-    :param max_file_size_mb: Maximum file size in MB. If specified and data exceeds this,
-        it will be split along the z-axis into multiple block files in a directory.
-        Default is 500.0 MB to avoid memory issues with large datasets.
-        Set to None to force single file output.
-    :param compression_level: NetCDF compression level (0-9). Default is 0 (no compression),
-        because NetCDF compression is really slow.
-    :param history: Dictionary of history entries to add. Keys should be identifiers,
-        values can be history strings or parsed history dicts (which will be serialized).
-        If None, uses the dataset's history attribute.
+    :param datatype: Data type identifier. Inferred from dataset if None.
+    :param dataset_id: Unique dataset identifier. Auto-generated if not provided.
+    :param max_file_size_mb: Max file size in MB. Data exceeding this is split into
+        multiple files along z-axis. Default 500MB. Set to None for single file.
+    :param compression_level: NetCDF compression level (0-9). Default 0 (no compression).
+    :param history: History entries to add. Keys are identifiers, values are strings
+        or parsed history dicts. If None, uses dataset's history attribute.
     :param extra_attrs: Additional global attributes to include.
-
-    .. note::
-        This function uses thread-safe locking for writes to handle NetCDF4's
-        parallel write limitations. The HDF5 library used by NetCDF4 doesn't
-        support multiple threads writing to the same file simultaneously.
-
-    .. note::
-        By default, large datasets are split into multiple files (~500MB each) to
-        reduce memory usage during writes. Small datasets (<500MB) are written as
-        a single file. To force single file output, set max_file_size_mb=None.
     """
     if isinstance(path, str):
         path = Path(path)
 
-    # Infer datatype
+    # Infer or validate datatype
     if datatype is None:
         if dataset._datatype is not None:
             datatype = dataset._datatype
@@ -173,34 +85,21 @@ def dataset_to_netcdf(
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         dataset_id = f"{timestamp}_{datatype}"
 
-    # Handle history: use dataset history if not explicitly provided
+    # Serialize history
     if history is None:
         history = dataset.history if isinstance(dataset.history, dict) else {}
+    serialized_history = {
+        key: serialize_history(val) if isinstance(val, dict) else str(val)
+        for key, val in history.items()
+    }
 
-    # Serialize any parsed history dicts to strings
-    serialized_history: dict[str, str] = {}
-    for key, value in history.items():
-        if isinstance(value, dict):
-            # It's a parsed history dict, serialize it
-            serialized_history[key] = serialize_history(value)
-        else:
-            # It's already a string, use as-is
-            serialized_history[key] = str(value)
-
-    # Prepare data
-    data_array = dataset.data
-
-    # Convert to storage dtype (may need to handle signed/unsigned conversion)
-    storage_dtype = datatype._dtype_uncorrected
-    data_array = data_array.astype(storage_dtype)  # type: ignore[no-untyped-call]
-
-    shape = data_array.shape
-    zdim, ydim, xdim = shape
+    # Prepare data array
+    data_array = dataset.data.astype(datatype._dtype_uncorrected)  # type: ignore[no-untyped-call]
+    zdim, ydim, xdim = data_array.shape
 
     # Build common attributes
-    dtype_name = np.dtype(datatype.dtype).name
     common_attrs = {
-        "data_description": f"Raw reconstructed tomogram data <{dtype_name}>",
+        "data_description": f"Raw reconstructed tomogram data <{np.dtype(datatype.dtype).name}>",
         "voxel_size_xyz": np.array(dataset.voxel_size, dtype=np.float32),
         "voxel_unit": str(dataset.voxel_unit),
         "coord_transform": "\n",
@@ -209,15 +108,15 @@ def dataset_to_netcdf(
         "total_grid_size_xyz": np.array([xdim, ydim, zdim], dtype=np.int32),
         "coordinate_origin_xyz": np.array([0, 0, 0], dtype=np.int32),
         "dataset_id": dataset_id,
+        **extra_attrs,
     }
-    common_attrs.update(extra_attrs)
 
-    # Determine if we need to split
+    # Determine split strategy
     if max_file_size_mb is not None:
-        # Estimate size per z-slice
-        bytes_per_slice = ydim * xdim * np.dtype(storage_dtype).itemsize
-        max_bytes = max_file_size_mb * 1024 * 1024
-        slices_per_file = max(1, int(max_bytes / bytes_per_slice))
+        bytes_per_slice = ydim * xdim * np.dtype(datatype._dtype_uncorrected).itemsize
+        slices_per_file = max(
+            1, int((max_file_size_mb * 1024 * 1024) / bytes_per_slice)
+        )
 
         if zdim > slices_per_file:
             _write_split_netcdf(
@@ -231,7 +130,6 @@ def dataset_to_netcdf(
             )
             return
 
-    # Write single file
     _write_single_netcdf(
         data_array,
         path,
@@ -240,6 +138,74 @@ def dataset_to_netcdf(
         compression_level,
         serialized_history,
     )
+
+
+def _create_dimensions(
+    ncfile: nc4.Dataset,
+    datatype_str: str,
+    zdim: int,
+    ydim: int,
+    xdim: int,
+) -> None:
+    """Create standard NetCDF dimensions."""
+    ncfile.createDimension(f"{datatype_str}_zdim", zdim)
+    ncfile.createDimension(f"{datatype_str}_ydim", ydim)
+    ncfile.createDimension(f"{datatype_str}_xdim", xdim)
+
+
+def _set_global_attributes(
+    ncfile: nc4.Dataset,
+    zdim: int,
+    zdim_total: int,
+    z_start: int,
+    z_end: int,
+    num_files: int,
+    common_attrs: dict[str, Any],
+    history: dict[str, str] | None,
+    include_history: bool,
+) -> None:
+    """Set global NetCDF attributes."""
+    ncfile.setncattr("zdim_total", zdim_total)
+    ncfile.setncattr("number_of_files", num_files)
+    ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
+    ncfile.setncatts(common_attrs)
+
+    if include_history and history:
+        for key, value in history.items():
+            ncfile.setncattr(f"history_{key}", value)
+
+
+def _create_data_variable(
+    ncfile: nc4.Dataset,
+    datatype: DataType,
+    compression_level: int,
+) -> nc4.Variable:
+    """Create the main data variable in a NetCDF file."""
+    datatype_str = str(datatype)
+    storage_dtype_nc = _numpy_to_netcdf_dtype(np.dtype(datatype._dtype_uncorrected))
+    return ncfile.createVariable(
+        datatype_str,
+        storage_dtype_nc,
+        (f"{datatype_str}_zdim", f"{datatype_str}_ydim", f"{datatype_str}_xdim"),
+        zlib=True,
+        complevel=compression_level,
+    )
+
+
+def _get_split_directory_path(base_path: Path) -> Path:
+    """Get the directory path for split NetCDF files."""
+    path_str = str(base_path)
+    if path_str.endswith(".nc"):
+        return Path(path_str[:-3] + "_nc")
+    elif path_str.endswith("_nc"):
+        return base_path
+    else:
+        return Path(path_str + "_nc")
+
+
+def _get_tmp_path() -> Path:
+    tmp = Path(dask.config.get("temporary-directory") or "/tmp")
+    return tmp / str(time.time())
 
 
 def _write_single_netcdf(
@@ -251,42 +217,34 @@ def _write_single_netcdf(
     history: dict[str, str] | None,
 ) -> None:
     """Write a single netcdf file."""
-    # Ensure path has .nc extension
     if not str(path).endswith(".nc"):
         path = Path(str(path) + ".nc")
 
     zdim, ydim, xdim = data_array.shape
     datatype_str = str(datatype)
 
+    # Write then read from zarr -- this does the computation and writes in parallel to
+    # a format that can handle it, we then get a new compute graph to write to the netcdf
+    # after the fact. Unintuitively this is easier and faster than writing to netcdf directly
+    tmp = _get_tmp_path()
+    data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
+    data_array = da.from_zarr(tmp)  # type: ignore[no-untyped-call]
+
     with nc4.Dataset(path, "w", format="NETCDF4") as ncfile:
-        # Create dimensions
-        ncfile.createDimension(f"{datatype_str}_zdim", zdim)
-        ncfile.createDimension(f"{datatype_str}_ydim", ydim)
-        ncfile.createDimension(f"{datatype_str}_xdim", xdim)
-
-        # Set global attributes
-        ncfile.setncattr("zdim_total", zdim)
-        ncfile.setncattr("number_of_files", 1)
-        ncfile.setncattr("zdim_range", np.array([0, zdim - 1], dtype=np.int32))
-        ncfile.setncatts(common_attrs)
-
-        # Add history attributes
-        if history:
-            for hist_key, hist_value in history.items():
-                ncfile.setncattr(f"history_{hist_key}", hist_value)
-
-        # Create main data variable
-        storage_dtype_nc = _numpy_to_netcdf_dtype(np.dtype(datatype._dtype_uncorrected))
-        data_var = ncfile.createVariable(
-            datatype_str,
-            storage_dtype_nc,
-            (f"{datatype_str}_zdim", f"{datatype_str}_ydim", f"{datatype_str}_xdim"),
-            zlib=True,
-            complevel=compression_level,
+        _create_dimensions(ncfile, datatype_str, zdim, ydim, xdim)
+        _set_global_attributes(
+            ncfile,
+            zdim,
+            zdim,
+            0,
+            zdim - 1,
+            1,
+            common_attrs,
+            history,
+            True,
         )
-
-        # Write data using scheduler-appropriate strategy
-        _write_netcdf_data(data_array, data_var)
+        data_var = _create_data_variable(ncfile, datatype, compression_level)
+        dask.compute(da.store(data_array, data_var), scheduler="synchronous")  # type: ignore[attr-defined,no-untyped-call]
 
 
 def _write_split_netcdf(
@@ -298,22 +256,18 @@ def _write_split_netcdf(
     compression_level: int,
     history: dict[str, str] | None,
 ) -> None:
-    """Write split netcdf files into a directory.
-
-    Each block is written using a thread-safe locked wrapper to handle
-    NetCDF's parallel write limitations.
-    """
-    # Create directory with _nc suffix
-    # If path ends with .nc, replace it with _nc
-    path_str = str(base_path)
-    if path_str.endswith(".nc"):
-        dir_path = Path(path_str[:-3] + "_nc")
-    elif path_str.endswith("_nc"):
-        dir_path = base_path
-    else:
-        dir_path = Path(path_str + "_nc")
-
+    """Write split netcdf files into a directory."""
+    dir_path = _get_split_directory_path(base_path)
     dir_path.mkdir(parents=True, exist_ok=True)
+
+    # Write then read from zarr -- this does the computation and writes in parallel to
+    # a format that can handle it. We then get a new compute graph to write to the netcdf
+    # after the fact. Unintuitively this is easier and faster than writing to netcdf directly
+    tmp = _get_tmp_path()
+    data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
+    data_array = da.from_zarr(  # type: ignore[no-untyped-call]
+        tmp, chunks=[slices_per_file, data_array.shape[1], data_array.shape[0]]
+    )
 
     zdim, ydim, xdim = data_array.shape
     num_files = (zdim + slices_per_file - 1) // slices_per_file
@@ -326,42 +280,25 @@ def _write_split_netcdf(
 
         block_path = dir_path / f"block{block_idx:08d}.nc"
 
+        tasks = []
         with nc4.Dataset(block_path, "w", format="NETCDF4") as ncfile:
-            # Create dimensions
-            ncfile.createDimension(f"{datatype_str}_zdim", block_zdim)
-            ncfile.createDimension(f"{datatype_str}_ydim", ydim)
-            ncfile.createDimension(f"{datatype_str}_xdim", xdim)
-
-            # Set global attributes
-            ncfile.setncattr("zdim_total", zdim)
-            ncfile.setncattr("number_of_files", num_files)
-            ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
-            ncfile.setncatts(common_attrs)
-
-            # Only first block gets history
-            if block_idx == 0 and history:
-                for hist_key, hist_value in history.items():
-                    ncfile.setncattr(f"history_{hist_key}", hist_value)
-
-            # Create main data variable
-            storage_dtype_nc = _numpy_to_netcdf_dtype(
-                np.dtype(datatype._dtype_uncorrected)
+            _create_dimensions(ncfile, datatype_str, block_zdim, ydim, xdim)
+            _set_global_attributes(
+                ncfile,
+                block_zdim,
+                zdim,
+                z_start,
+                z_end,
+                num_files,
+                common_attrs,
+                history,
+                block_idx == 0,
             )
-            data_var = ncfile.createVariable(
-                datatype_str,
-                storage_dtype_nc,
-                (
-                    f"{datatype_str}_zdim",
-                    f"{datatype_str}_ydim",
-                    f"{datatype_str}_xdim",
-                ),
-                zlib=True,
-                complevel=compression_level,
-            )
-
-            # Write block data using scheduler-appropriate strategy
+            data_var = _create_data_variable(ncfile, datatype, compression_level)
             block_data = data_array[z_start : z_end + 1, :, :]
-            _write_netcdf_data(block_data, data_var)
+            tasks.append(da.store(block_data, data_var))
+        # This is only valid because there can only be one file per worker, given number of chunks == number of output files
+        dask.compute(tasks)  # type: ignore[attr-defined,no-untyped-call]
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
