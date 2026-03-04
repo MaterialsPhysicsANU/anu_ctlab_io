@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 import threading
 import time
 from datetime import datetime
@@ -16,6 +17,13 @@ import numpy as np
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import History, serialize_history
+
+try:
+    import zarr  # noqa: F401
+
+    _HAS_ZARR = True
+except ImportError:
+    _HAS_ZARR = False
 
 
 class LockedNetCDFVariable:
@@ -223,28 +231,33 @@ def _write_single_netcdf(
     zdim, ydim, xdim = data_array.shape
     datatype_str = str(datatype)
 
-    # Write then read from zarr -- this does the computation and writes in parallel to
-    # a format that can handle it, we then get a new compute graph to write to the netcdf
-    # after the fact. Unintuitively this is easier and faster than writing to netcdf directly
+    # If zarr is available, use it for optimized parallel writes
+    # Write to zarr first (which handles parallel writes), then read back
+    # This is faster than writing directly to NetCDF
     tmp = _get_tmp_path()
-    data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
-    data_array = da.from_zarr(tmp)  # type: ignore[no-untyped-call]
+    if _HAS_ZARR:
+        data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
+        data_array = da.from_zarr(tmp)  # type: ignore[no-untyped-call]
 
-    with nc4.Dataset(path, "w", format="NETCDF4") as ncfile:
-        _create_dimensions(ncfile, datatype_str, zdim, ydim, xdim)
-        _set_global_attributes(
-            ncfile,
-            zdim,
-            zdim,
-            0,
-            zdim - 1,
-            1,
-            common_attrs,
-            history,
-            True,
-        )
-        data_var = _create_data_variable(ncfile, datatype, compression_level)
-        dask.compute(da.store(data_array, data_var), scheduler="synchronous")  # type: ignore[attr-defined,no-untyped-call]
+    try:
+        with nc4.Dataset(path, "w", format="NETCDF4") as ncfile:
+            _create_dimensions(ncfile, datatype_str, zdim, ydim, xdim)
+            _set_global_attributes(
+                ncfile,
+                zdim,
+                zdim,
+                0,
+                zdim - 1,
+                1,
+                common_attrs,
+                history,
+                True,
+            )
+            data_var = _create_data_variable(ncfile, datatype, compression_level)
+            dask.compute(da.store(data_array, data_var), scheduler="synchronous")  # type: ignore[attr-defined,no-untyped-call]
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp)
 
 
 def _write_split_netcdf(
@@ -260,45 +273,47 @@ def _write_split_netcdf(
     dir_path = _get_split_directory_path(base_path)
     dir_path.mkdir(parents=True, exist_ok=True)
 
-    # Write then read from zarr -- this does the computation and writes in parallel to
-    # a format that can handle it. We then get a new compute graph to write to the netcdf
-    # after the fact. Unintuitively this is easier and faster than writing to netcdf directly
+    # If zarr is available, use it for optimized parallel writes
+    # Write to zarr first (which handles parallel writes), then read back
+    # This is faster than writing directly to NetCDF
     tmp = _get_tmp_path()
-    data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
-    data_array = da.from_zarr(  # type: ignore[no-untyped-call]
-        tmp, chunks=[slices_per_file, data_array.shape[1], data_array.shape[0]]
-    )
+    if _HAS_ZARR:
+        data_array.to_zarr(tmp, mode="w")  # type: ignore[no-untyped-call]
+        data_array = da.from_zarr(  # type: ignore[no-untyped-call]
+            tmp, chunks=[slices_per_file, 1, 1]
+        )
 
-    zdim, ydim, xdim = data_array.shape
-    num_files = (zdim + slices_per_file - 1) // slices_per_file
-    datatype_str = str(datatype)
+    try:
+        zdim, ydim, xdim = data_array.shape
+        num_files = (zdim + slices_per_file - 1) // slices_per_file
+        datatype_str = str(datatype)
 
-    for block_idx in range(num_files):
-        z_start = block_idx * slices_per_file
-        z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
-        block_zdim = z_end - z_start + 1
+        for block_idx in range(num_files):
+            z_start = block_idx * slices_per_file
+            z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
+            block_zdim = z_end - z_start + 1
 
-        block_path = dir_path / f"block{block_idx:08d}.nc"
+            block_path = dir_path / f"block{block_idx:08d}.nc"
 
-        tasks = []
-        with nc4.Dataset(block_path, "w", format="NETCDF4") as ncfile:
-            _create_dimensions(ncfile, datatype_str, block_zdim, ydim, xdim)
-            _set_global_attributes(
-                ncfile,
-                block_zdim,
-                zdim,
-                z_start,
-                z_end,
-                num_files,
-                common_attrs,
-                history,
-                block_idx == 0,
-            )
-            data_var = _create_data_variable(ncfile, datatype, compression_level)
-            block_data = data_array[z_start : z_end + 1, :, :]
-            tasks.append(da.store(block_data, data_var))
-        # This is only valid because there can only be one file per worker, given number of chunks == number of output files
-        dask.compute(tasks)  # type: ignore[attr-defined,no-untyped-call]
+            with nc4.Dataset(block_path, "w", format="NETCDF4") as ncfile:
+                _create_dimensions(ncfile, datatype_str, block_zdim, ydim, xdim)
+                _set_global_attributes(
+                    ncfile,
+                    block_zdim,
+                    zdim,
+                    z_start,
+                    z_end,
+                    num_files,
+                    common_attrs,
+                    history,
+                    block_idx == 0,
+                )
+                data_var = _create_data_variable(ncfile, datatype, compression_level)
+                block_data = data_array[z_start : z_end + 1, :, :]
+                dask.compute(da.store(block_data, data_var))  # type: ignore[attr-defined,no-untyped-call]
+    finally:
+        if tmp.exists():
+            shutil.rmtree(tmp)
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
