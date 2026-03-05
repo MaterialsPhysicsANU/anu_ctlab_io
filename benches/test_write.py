@@ -2,19 +2,20 @@ import dask.array as da
 import numpy as np
 import pytest
 from dask.distributed import Client, LocalCluster
-from zarr.codecs import ZstdCodec
 
 import anu_ctlab_io
 import anu_ctlab_io.netcdf
 import anu_ctlab_io.zarr
 
-SHAPE = (1024, 1024, 1024)
+SHAPE = (1024, 512, 512)
 MAX_FILE_SIZE_MB = 256
 
 
 @pytest.fixture(scope="module")
 def dataset():
-    data = da.zeros(SHAPE, dtype=np.float32, chunks=SHAPE)
+    data = da.random.randint(
+        0, high=65535, size=SHAPE, chunks=(256, 256, 256), dtype=np.uint16
+    )
     return anu_ctlab_io.Dataset(
         data=data,
         dimension_names=("z", "y", "x"),
@@ -27,6 +28,7 @@ def dataset():
 def _assert_round_trip(dataset, read_back):
     expected = dataset.data.astype(dataset._datatype.dtype).compute()
     actual = read_back.data.astype(read_back._datatype.dtype).compute()
+    assert not np.all(actual == 0), "read-back data is all zeros"
     assert np.array_equal(actual, expected)
 
 
@@ -35,7 +37,7 @@ def test_write_netcdf(benchmark, dataset, tmp_path):
         anu_ctlab_io.netcdf.dataset_to_netcdf(
             dataset,
             tmp_path / "tomoOut_nc",
-            compression_level=5,
+            compression_level=0,
             max_file_size_mb=MAX_FILE_SIZE_MB,
         )
 
@@ -52,7 +54,7 @@ def test_write_netcdf_distributed(benchmark, dataset, tmp_path):
             anu_ctlab_io.netcdf.dataset_to_netcdf(
                 dataset,
                 tmp_path / "tomoOut_nc",
-                compression_level=5,
+                compression_level=0,
                 max_file_size_mb=MAX_FILE_SIZE_MB,
             )
 
@@ -79,7 +81,7 @@ def test_write_zarr(benchmark, dataset, tmp_path):
             chunks=chunks,
             shards=chunks,
             create_array_kwargs={
-                "compressors": [ZstdCodec(level=5)],
+                "compressors": [],
             },
         )
 
