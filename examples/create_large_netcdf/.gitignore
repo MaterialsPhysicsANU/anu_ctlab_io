@@ -1,0 +1,5 @@
+# Gadi output/error files
+*.e*
+*.o*
+
+output/

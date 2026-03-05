@@ -1,0 +1,23 @@
+[build-system]
+requires = ["uv_build>=0.10.8,<0.11.0"]
+build-backend = "uv_build"
+
+[project]
+name = "create-large-netcdf"
+version = "0.1.0"
+description = "Create a large NetCDF tomogram with smoothly varying data"
+requires-python = ">=3.12"
+dependencies = [
+    "anu-ctlab-io[netcdf]",
+    "bokeh>=3.1.0",
+    "dask[distributed]>=2025.2.0",
+    "dask-jobqueue>=0.9.0",
+    "mpi4py>=3.1.0",
+    "numpy>=2.2.3",
+]
+
+[project.scripts]
+create-large-netcdf = "create_large_netcdf:main"
+
+[tool.uv.sources]
+anu-ctlab-io = { path = "../..", editable = true }
