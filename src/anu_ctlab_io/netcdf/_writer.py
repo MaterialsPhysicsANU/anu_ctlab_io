@@ -259,18 +259,18 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
 
     # Rechunk so each chunk corresponds to exactly one NetCDF block
-    data_array = data_array.rechunk({0: slices_per_file, 1: ydim, 2: xdim})  # type: ignore[no-untyped-call]
+    data_array = data_array.rechunk({0: slices_per_file, 1: -1, 2: -1})  # type: ignore[no-untyped-call]
+    z_delayed = data_array.to_delayed().squeeze(axis=(1, 2))  # type: ignore[call-overload]
 
     tasks = []
-    for block_idx in range(num_files):
+    for block_idx, z_block in enumerate(z_delayed):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
-        block_data = dask.delayed(np.asarray)(data_array[z_start : z_end + 1])  # type: ignore[attr-defined]
         block_path = dir_path / f"block{block_idx:08d}.nc"
 
         tasks.append(
             dask.delayed(_write_block)(  # type: ignore[attr-defined]
-                block_data,
+                z_block,
                 block_path,
                 datatype,
                 zdim,
@@ -284,7 +284,8 @@ def _write_split_netcdf(
             )
         )
 
-    dask.compute(*tasks, scheduler="processes")  # type: ignore[attr-defined,no-untyped-call]
+    # FIXME: Make sure this doesn't use the threads scheduler, due to libhdf5 bug
+    dask.compute(*tasks)  # type: ignore[attr-defined,no-untyped-call]
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
