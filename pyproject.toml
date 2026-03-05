@@ -57,6 +57,10 @@ dev = [
     "ruff>=0.9.5",
     "pytest>=8.3.5",
 ]
+bench = [
+    "pytest-benchmark>=5.2.3",
+    "anu-ctlab-io[zarr, netcdf]",
+]
 docs = [
     "sphinx>=8.2.3",
     "sphinx-rtd-theme>=3.0.2",
