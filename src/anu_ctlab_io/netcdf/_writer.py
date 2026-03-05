@@ -259,17 +259,17 @@ def _write_split_netcdf(
     num_files = (zdim + slices_per_file - 1) // slices_per_file
 
     # Rechunk so each chunk corresponds to exactly one NetCDF block
-    data_array = data_array.rechunk({0: slices_per_file, 1: ydim, 2: xdim})
+    data_array = data_array.rechunk({0: slices_per_file, 1: ydim, 2: xdim})  # type: ignore[no-untyped-call]
 
     tasks = []
     for block_idx in range(num_files):
         z_start = block_idx * slices_per_file
         z_end = min((block_idx + 1) * slices_per_file, zdim) - 1
-        block_data = dask.delayed(np.asarray)(data_array[z_start : z_end + 1])
+        block_data = dask.delayed(np.asarray)(data_array[z_start : z_end + 1])  # type: ignore[attr-defined]
         block_path = dir_path / f"block{block_idx:08d}.nc"
 
         tasks.append(
-            dask.delayed(_write_block)(
+            dask.delayed(_write_block)(  # type: ignore[attr-defined]
                 block_data,
                 block_path,
                 datatype,
@@ -284,7 +284,7 @@ def _write_split_netcdf(
             )
         )
 
-    dask.compute(*tasks, scheduler="processes")
+    dask.compute(*tasks, scheduler="processes")  # type: ignore[attr-defined,no-untyped-call]
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
