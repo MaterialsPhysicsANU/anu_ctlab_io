@@ -58,6 +58,7 @@ dev = [
     "pytest>=8.3.5",
 ]
 bench = [
+    "distributed>=2026.1.2",
     "pytest-benchmark>=5.2.3",
     "anu-ctlab-io[zarr, netcdf]",
 ]
