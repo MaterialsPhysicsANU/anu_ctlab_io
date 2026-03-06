@@ -9,12 +9,11 @@ import os
 import socket
 from pathlib import Path
 
-
 import dask.array as da  # noqa: E402
+import numpy as np  # noqa: E402
 from dask.distributed import Client  # noqa: E402
 from dask_jobqueue.runner import BaseRunner, Role  # noqa: E402
 from mpi4py import MPI
-import numpy as np  # noqa: E402
 
 import anu_ctlab_io  # noqa: E402
 import anu_ctlab_io.netcdf  # noqa: E402
@@ -40,11 +39,13 @@ class MPIRunner(BaseRunner):
 
     async def set_scheduler_address(self, scheduler) -> None:
         import asyncio
+
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, self.comm.bcast, scheduler.address, 0)
 
     async def get_scheduler_address(self) -> str:
         import asyncio
+
         loop = asyncio.get_event_loop()
         address = await loop.run_in_executor(None, self.comm.bcast, None, 0)
         return address
@@ -75,7 +76,9 @@ def main():
         output_dir = Path(os.environ.get("PBS_O_WORKDIR", ".")) / "output"
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        n_workers = MPI.COMM_WORLD.Get_size() - 2  # all ranks minus scheduler and client
+        n_workers = (
+            MPI.COMM_WORLD.Get_size() - 2
+        )  # all ranks minus scheduler and client
         client.wait_for_workers(n_workers)
 
         scheduler_info = client.scheduler_info()
@@ -87,11 +90,15 @@ def main():
         print("Dashboard: To view the Dask dashboard, run:")
         user = os.environ.get("USER", "USERNAME")
         local_port = 8787
-        print(f"  ssh -N -L {local_port}:{scheduler_host}:{dashboard_port} -J {user}@gadi.nci.org.au {user}@{scheduler_host}")
+        print(
+            f"  ssh -N -L {local_port}:{scheduler_host}:{dashboard_port} -J {user}@gadi.nci.org.au {user}@{scheduler_host}"
+        )
         print(f"  Then open http://localhost:{local_port}/status")
         print()
 
-        data = da.fromfunction(smooth_field, shape=SHAPE, chunks=(256, 256, 256), dtype=np.uint16)
+        data = da.fromfunction(
+            smooth_field, shape=SHAPE, chunks=(256, 256, 256), dtype=np.uint16
+        )
 
         dataset = anu_ctlab_io.Dataset(
             data=data,

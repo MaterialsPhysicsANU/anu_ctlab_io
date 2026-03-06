@@ -260,7 +260,7 @@ def _write_split_netcdf(
 
     # Rechunk so each chunk corresponds to exactly one NetCDF block
     data_array = data_array.rechunk({0: slices_per_file, 1: -1, 2: -1})  # type: ignore[no-untyped-call]
-    z_delayed = data_array.to_delayed().squeeze(axis=(1, 2))  # type: ignore[call-overload]
+    z_delayed = data_array.to_delayed().squeeze(axis=(1, 2))  # type: ignore[no-untyped-call]
 
     tasks = []
     for block_idx, z_block in enumerate(z_delayed):
