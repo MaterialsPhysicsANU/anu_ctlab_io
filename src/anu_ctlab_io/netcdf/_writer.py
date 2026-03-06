@@ -8,7 +8,7 @@ from typing import Any
 
 import dask
 import dask.array as da
-import netCDF4 as nc4  # type: ignore[import-not-found]
+import h5netcdf.legacyapi as nc4  # type: ignore[import-not-found]
 import numpy as np
 
 from anu_ctlab_io._dataset import Dataset
@@ -141,7 +141,8 @@ def _set_global_attributes(
     ncfile.setncattr("zdim_total", zdim_total)
     ncfile.setncattr("number_of_files", num_files)
     ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
-    ncfile.setncatts(common_attrs)
+    for key, value in common_attrs.items():  # NOTE: h5netcdf lacks setncatts
+        ncfile.setncattr(key, value)
 
     if include_history and history:
         for key, value in history.items():
@@ -191,7 +192,7 @@ def _write_single_netcdf(
     zdim, ydim, xdim = data_array.shape
     datatype_str = str(datatype)
 
-    with nc4.Dataset(path, "w", format="NETCDF4") as ncfile:
+    with nc4.Dataset(path, "w", format="NETCDF4", libver="earliest") as ncfile:
         _create_dimensions(ncfile, datatype_str, zdim, ydim, xdim)
         _set_global_attributes(
             ncfile,
@@ -225,7 +226,7 @@ def _write_block(
     block_zdim, ydim, xdim = block_data.shape
     datatype_str = str(datatype)
 
-    with nc4.Dataset(block_path, "w", format="NETCDF4") as ncfile:
+    with nc4.Dataset(block_path, "w", format="NETCDF4", libver="earliest") as ncfile:
         _create_dimensions(ncfile, datatype_str, block_zdim, ydim, xdim)
         _set_global_attributes(
             ncfile,
@@ -284,7 +285,6 @@ def _write_split_netcdf(
             )
         )
 
-    # FIXME: Make sure this doesn't use the threads scheduler, due to libhdf5 bug
     dask.compute(*tasks)  # type: ignore[attr-defined,no-untyped-call]
 
 
