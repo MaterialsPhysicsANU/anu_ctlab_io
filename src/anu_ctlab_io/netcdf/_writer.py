@@ -138,15 +138,17 @@ def _set_global_attributes(
     include_history: bool,
 ) -> None:
     """Set global NetCDF attributes."""
-    ncfile.setncattr("zdim_total", zdim_total)
-    ncfile.setncattr("number_of_files", num_files)
+    ncfile.setncattr("zdim_total", np.int32(zdim_total))
+    ncfile.setncattr("number_of_files", np.int32(num_files))
     ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
     for key, value in common_attrs.items():  # NOTE: h5netcdf lacks setncatts
-        ncfile.setncattr(key, value)
+        # h5netcdf stores Python str as UTF-8 NC_STRING; encode to bytes so it
+        # is stored as ASCII NC_CHAR, matching what the reference files use.
+        ncfile.setncattr(key, value.encode() if isinstance(value, str) else value)
 
     if include_history and history:
         for key, value in history.items():
-            ncfile.setncattr(f"history_{key}", value)
+            ncfile.setncattr(f"history_{key}", value.encode() if isinstance(value, str) else value)
 
 
 def _create_data_variable(
