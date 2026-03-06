@@ -15,7 +15,7 @@
 module load openmpi
 
 if [ -z "${PBS_JOBID}" ]; then
-    uv sync
+    uv sync --compile-bytecode
     exec qsub "$0"
 fi
 
