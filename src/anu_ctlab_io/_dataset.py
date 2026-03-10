@@ -5,7 +5,7 @@ from enum import Enum
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 
 import dask.array as da
 import numpy as np
@@ -18,7 +18,7 @@ from anu_ctlab_io._voxel_properties import VoxelUnit
 class StorageFormat(str, Enum):
     """Output format for :any:`Dataset.save`."""  # noqa: D400
 
-    NetCDF = "netcdf"
+    NetCDF = "NetCDF"
     Zarr = "zarr"
 
 
@@ -46,7 +46,13 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def to_path(self, path: Path, *, filetype: str = "auto", **kwargs: Any) -> None:
+    def to_path(
+        self,
+        path: Path,
+        *,
+        filetype: StorageFormat | Literal["auto"] = "auto",
+        **kwargs: Any,
+    ) -> None:
         pass
 
     @property
@@ -146,7 +152,7 @@ class Dataset(AbstractDataset):
         cls,
         path: Path | str,
         *,
-        filetype: str = "auto",
+        filetype: StorageFormat | Literal["auto"] = "auto",
         parse_history: bool = True,
         **kwargs: Any,
     ) -> "Dataset":
@@ -196,7 +202,7 @@ class Dataset(AbstractDataset):
         self,
         path: Path | str,
         *,
-        filetype: str = "auto",
+        filetype: StorageFormat | Literal["auto"] = "auto",
         dataset_id: str | None = "auto",
         **kwargs: Any,
     ) -> None:
@@ -301,15 +307,10 @@ class Dataset(AbstractDataset):
             ds2 = Dataset.from_path("file2.nc")
             output_path = ds2.save(suffix="__processed", format=StorageFormat.Zarr)
         """
-        fmt = format
-
-        # Normalize format to match to_path expectations
-        match fmt:
+        match format:
             case StorageFormat.NetCDF:
-                filetype = "NetCDF"
                 extension = ".nc"
             case StorageFormat.Zarr:
-                filetype = "zarr"
                 extension = ".zarr"
 
         # Get base name (strip timestamp if old format)
@@ -327,7 +328,7 @@ class Dataset(AbstractDataset):
 
         # Write with ORIGINAL dataset_id preserved in metadata
         # Use dataset_id="auto" to let to_path handle it
-        self.to_path(output_path, filetype=filetype, **kwargs)
+        self.to_path(output_path, filetype=format, **kwargs)
 
         return output_path
 
