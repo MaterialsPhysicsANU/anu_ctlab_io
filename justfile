@@ -5,3 +5,6 @@ docs:
 
 test:
     uvx --with tox-uv tox
+
+bench:
+    uv run --group bench --all-extras pytest benches/ -v

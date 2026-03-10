@@ -93,19 +93,45 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
     if os.path.isdir(path):
         possible_files = [os.path.join(path, p) for p in os.listdir(path)]
         files = sorted(list(filter(os.path.isfile, possible_files)))
-        dataset = xr.open_mfdataset(
-            files,
-            combine="nested",
-            concat_dim=[f"{datatype}_zdim"],
-            combine_attrs="drop_conflicts",
-            coords="minimal",
-            compat="override",
-            mask_and_scale=False,
-            data_vars=[f"{datatype}"],
-            **kwargs,
+        for engine in _read_engines():
+            try:
+                return xr.open_mfdataset(
+                    files,
+                    engine=engine,
+                    combine="nested",
+                    concat_dim=[f"{datatype}_zdim"],
+                    combine_attrs="drop_conflicts",
+                    coords="minimal",
+                    compat="override",
+                    mask_and_scale=False,
+                    data_vars=[f"{datatype}"],
+                    **kwargs,
+                )
+            except OSError:
+                pass
+        raise OSError(
+            f"Could not read netCDF files in {path} with any available engine."
         )
     else:
-        dataset = xr.open_dataset(
-            path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
-        )
-    return dataset
+        chunks = kwargs.pop("chunks", -1)
+        for engine in _read_engines():
+            try:
+                return xr.open_dataset(
+                    path,
+                    engine=engine,
+                    mask_and_scale=False,
+                    chunks=chunks,
+                    **kwargs,
+                )
+            except OSError:
+                pass
+        raise OSError(f"Could not read netCDF file {path} with any available engine.")
+
+
+def _read_engines() -> list[str]:
+    engines = []
+    if importlib.util.find_spec("h5netcdf") is not None:
+        engines.append("h5netcdf")
+    if importlib.util.find_spec("netCDF4") is not None:
+        engines.append("netCDF4")
+    return engines
