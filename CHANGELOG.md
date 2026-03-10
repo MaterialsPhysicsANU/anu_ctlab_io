@@ -20,8 +20,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `Dataset.update_history()` method for bulk updating history entries
 - Add `Dataset.from_modified()` classmethod for creating modified datasets with automatic history tracking
 - Add `dataset_id` property to `Dataset` for tracking source file identifiers
-- Add `source_format` property to `Dataset` for tracking file format origin ("netcdf" or "zarr")
-- Add `Dataset.save()` method for auto-generating output paths from dataset_id
+- Add `StorageFormat` enum (`NetCDF`, `Zarr`)
+- Add `Dataset.save()` method for saving datasets in a requested `StorageFormat`
 
 ### Changed
 

@@ -1,6 +1,7 @@
 import re
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from enum import Enum
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -12,6 +13,14 @@ import numpy as np
 from anu_ctlab_io._datatype import DataType, StorageDType
 from anu_ctlab_io._parse_history import History, HistoryValue
 from anu_ctlab_io._voxel_properties import VoxelUnit
+
+
+class StorageFormat(str, Enum):
+    """Output format for :any:`Dataset.save`."""  # noqa: D400
+
+    NetCDF = "netcdf"
+    Zarr = "zarr"
+    OMEZarr = "omezarr"
 
 
 def _extract_base_name_from_dataset_id(dataset_id: str) -> str:
@@ -101,7 +110,6 @@ class Dataset(AbstractDataset):
         datatype: DataType | None = None,
         history: History | None = None,
         dataset_id: str | None = None,
-        source_format: str | None = None,
     ) -> None:
         """
         Manually constructs a :any:`Dataset`.
@@ -113,7 +121,6 @@ class Dataset(AbstractDataset):
         :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
         :param history: The history of the :any:`Dataset`.
         :param dataset_id: The dataset identifier from the source file.
-        :param source_format: The format the dataset was read from ("netcdf" or "zarr").
         """
         if history is None:
             history = {}
@@ -125,7 +132,6 @@ class Dataset(AbstractDataset):
         self._voxel_size = voxel_size
         self._history = history
         self._dataset_id = dataset_id
-        self._source_format = source_format
 
     @staticmethod
     def _import_with_extra(module: str, extra: str) -> ModuleType:
@@ -264,7 +270,7 @@ class Dataset(AbstractDataset):
     def save(
         self,
         suffix: str,
-        format: str | None = None,
+        format: StorageFormat,
         directory: Path | str = ".",
         **kwargs: Any,
     ) -> Path:
@@ -274,7 +280,10 @@ class Dataset(AbstractDataset):
         for cleaner paths while preserving them in file metadata for provenance.
 
         :param suffix: Suffix to append to the base name.
-        :param format: Output format ("netcdf" or "zarr"). If None, uses source_format or defaults to "netcdf".
+        :param format: Output format. :any:`StorageFormat.Zarr` writes OME-Zarr by default
+            (the latest supported version, currently 0.5). To override the OME-Zarr version or
+            write a plain Zarr array, pass ``ome_zarr_version`` as a keyword argument, e.g.
+            ``ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05`` or ``ome_zarr_version=None``.
         :param directory: Directory to write the file to. Defaults to current directory.
         :param kwargs: Additional arguments passed to the format writer.
         :return: Path to the written file.
@@ -286,24 +295,23 @@ class Dataset(AbstractDataset):
             # output filename: "tomoLoRes_SS_processed.nc"
             # dataset_id in file: "20250314_012913_tomoLoRes_SS"
             ds = Dataset.from_path("file.nc")
-            output_path = ds.save(suffix="_processed")
+            output_path = ds.save(suffix="_processed", format=StorageFormat.NetCDF)
 
             # New format: "0-00000_gb1"
             # Output filename: "0-00000_gb1__processed.zarr"
             ds2 = Dataset.from_path("file2.nc")
-            output_path = ds2.save(suffix="__processed", format="zarr")
+            output_path = ds2.save(suffix="__processed", format=StorageFormat.Zarr)
         """
-        # Determine format
-        if format is None:
-            format = self._source_format or "netcdf"
+        fmt = format
 
         # Normalize format to match to_path expectations
-        if format.lower() == "netcdf":
-            filetype = "NetCDF"
-        elif format.lower() == "zarr":
-            filetype = "zarr"
-        else:
-            filetype = format
+        match fmt:
+            case StorageFormat.NetCDF:
+                filetype = "NetCDF"
+                extension = ".nc"
+            case StorageFormat.Zarr:
+                filetype = "zarr"
+                extension = ".zarr"
 
         # Get base name (strip timestamp if old format)
         if self._dataset_id is not None:
@@ -315,7 +323,6 @@ class Dataset(AbstractDataset):
             )
 
         # Construct filename using stripped basename
-        extension = ".zarr" if format.lower() == "zarr" else ".nc"
         filename = f"{base_name}{suffix}{extension}"
         output_path = Path(directory) / filename
 
@@ -383,11 +390,6 @@ class Dataset(AbstractDataset):
     def dataset_id(self) -> str | None:
         """The dataset identifier from the source file, if available."""
         return self._dataset_id
-
-    @property
-    def source_format(self) -> str | None:
-        """The format the dataset was read from ("netcdf" or "zarr"), if available."""
-        return self._source_format
 
     @property
     def mask(self) -> da.Array:
@@ -551,7 +553,6 @@ class Dataset(AbstractDataset):
             datatype=datatype if datatype is not None else source._datatype,
             history=new_history,
             dataset_id=new_dataset_id,
-            source_format=source._source_format,
         )
 
 

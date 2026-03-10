@@ -58,7 +58,6 @@ def dataset_from_netcdf(
         voxel_size=dataset.attrs["voxel_size"],
         history=dataset.history,
         dataset_id=dataset_id,
-        source_format="netcdf",
     )
 
 

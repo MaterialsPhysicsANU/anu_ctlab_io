@@ -56,7 +56,6 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
         voxel_size=voxel_size,
         history=history,
         dataset_id=dataset_id,
-        source_format="zarr",
     )
 
 
@@ -159,5 +158,4 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         voxel_size=voxel_size,
         history=history,
         dataset_id=dataset_id,
-        source_format="zarr",
     )

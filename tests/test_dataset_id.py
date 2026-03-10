@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from anu_ctlab_io import Dataset
+from anu_ctlab_io import Dataset, StorageFormat
 from anu_ctlab_io._dataset import _extract_base_name_from_dataset_id
 
 try:
@@ -76,15 +76,6 @@ class TestDatasetIdNetCDF:
         # Known dataset_id from test file
         assert ds.dataset_id == "20250314_012913_tomoLoRes_SS"
 
-    def test_source_format_set_on_read(self, tmp_path):
-        """Test that source_format is set when reading NetCDF."""
-        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
-        if not test_file.exists():
-            pytest.skip("Test file not found")
-
-        ds = Dataset.from_path(test_file)
-        assert ds.source_format == "netcdf"
-
     def test_dataset_id_preserved_in_write(self, tmp_path):
         """Test that dataset_id is preserved when writing."""
         test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
@@ -116,7 +107,6 @@ class TestDatasetIdNetCDF:
         )
 
         assert modified.dataset_id == original_id
-        assert modified.source_format == ds.source_format
 
     def test_dataset_id_modified_with_suffix(self, tmp_path):
         """Test that dataset_id is modified when dataset_id_suffix is provided."""
@@ -226,7 +216,6 @@ class TestDatasetIdZarr:
 
         ds = Dataset.from_path(test_file)
         assert ds.dataset_id is not None
-        assert ds.source_format == "zarr"
 
     def test_dataset_id_roundtrip_zarr(self, tmp_path):
         """Test dataset_id roundtrip with Zarr format."""
@@ -258,7 +247,9 @@ class TestSaveMethod:
         ds = Dataset.from_path(test_file)
 
         # Save with explicit suffix
-        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
 
         # Check filename doesn't contain timestamp
         assert output_path.name == "tomoLoRes_SS_CTLAB_IO.nc"
@@ -274,7 +265,9 @@ class TestSaveMethod:
         original_id = ds.dataset_id
 
         # Save and read back
-        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
         ds2 = Dataset.from_path(output_path)
 
         # Metadata should preserve full dataset_id with timestamp
@@ -289,7 +282,9 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        output_path = ds.save(suffix="_processed", directory=tmp_path)
+        output_path = ds.save(
+            suffix="_processed", format=StorageFormat.NetCDF, directory=tmp_path
+        )
         assert output_path.name == "tomoLoRes_SS_processed.nc"
 
     @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
@@ -301,21 +296,11 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        output_path = ds.save(suffix="_CTLAB_IO", format="zarr", directory=tmp_path)
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.Zarr, directory=tmp_path
+        )
         assert output_path.name == "tomoLoRes_SS_CTLAB_IO.zarr"
         assert output_path.exists()
-
-    def test_save_uses_source_format_by_default(self, tmp_path):
-        """Test that save() defaults to source_format."""
-        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
-        if not test_file.exists():
-            pytest.skip("Test file not found")
-
-        ds = Dataset.from_path(test_file)
-
-        # Don't specify format - should use source format (netcdf)
-        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
-        assert output_path.suffix == ".nc"
 
     def test_save_raises_without_dataset_id(self, tmp_path):
         """Test that save() raises error when dataset_id is missing."""
@@ -332,7 +317,7 @@ class TestSaveMethod:
         )
 
         with pytest.raises(ValueError, match="Cannot auto-generate filename"):
-            ds.save(suffix="_test", directory=tmp_path)
+            ds.save(suffix="_test", format=StorageFormat.NetCDF, directory=tmp_path)
 
     def test_save_returns_path(self, tmp_path):
         """Test that save() returns the Path to the written file."""
@@ -342,7 +327,9 @@ class TestSaveMethod:
 
         ds = Dataset.from_path(test_file)
 
-        output_path = ds.save(suffix="_CTLAB_IO", directory=tmp_path)
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
         assert isinstance(output_path, Path)
         assert output_path.exists()
 
@@ -363,12 +350,13 @@ class TestSaveMethod:
             voxel_unit=ds.voxel_unit,
             voxel_size=ds.voxel_size,
             dataset_id="0-00000_gb1",  # New format
-            source_format="netcdf",
             datatype=ds._datatype,
             history=ds._history,
         )
 
-        output_path = new_ds.save(suffix="_CTLAB_IO", directory=tmp_path)
+        output_path = new_ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
 
         # New format should be used as-is (no timestamp to strip)
         assert output_path.name == "0-00000_gb1_CTLAB_IO.nc"
