@@ -20,7 +20,6 @@ class StorageFormat(str, Enum):
 
     NetCDF = "netcdf"
     Zarr = "zarr"
-    OMEZarr = "omezarr"
 
 
 def _extract_base_name_from_dataset_id(dataset_id: str) -> str:
