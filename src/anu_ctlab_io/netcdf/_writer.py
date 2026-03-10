@@ -60,7 +60,7 @@ def dataset_to_netcdf(
 
     # Handle history: use dataset history if not explicitly provided
     if history is None:
-        history = dataset.history if isinstance(dataset.history, dict) else {}
+        history = dataset.history
 
     # Serialize any parsed history dicts to strings
     serialized_history: dict[str, str] = {}
@@ -133,7 +133,7 @@ def _write_single_netcdf(
     datatype: DataType,
     common_attrs: dict[str, Any],
     compression_level: int,
-    history: dict[str, str] | None,
+    serialized_history: dict[str, str] | None,
 ) -> None:
     """Write a single netcdf file."""
     # Ensure path has .nc extension
@@ -156,8 +156,8 @@ def _write_single_netcdf(
         ncfile.setncatts(common_attrs)
 
         # Add history attributes
-        if history:
-            for hist_key, hist_value in history.items():
+        if serialized_history:
+            for hist_key, hist_value in serialized_history.items():
                 ncfile.setncattr(f"history_{hist_key}", hist_value)
 
         # Create main data variable
@@ -181,7 +181,7 @@ def _write_split_netcdf(
     slices_per_file: int,
     common_attrs: dict[str, Any],
     compression_level: int,
-    history: dict[str, str] | None,
+    serialized_history: dict[str, str] | None,
 ) -> None:
     """Write split netcdf files into a directory."""
     # Create directory with _nc suffix
@@ -222,8 +222,8 @@ def _write_split_netcdf(
             ncfile.setncatts(common_attrs)
 
             # Only first block gets history
-            if block_idx == 0 and history:
-                for hist_key, hist_value in history.items():
+            if block_idx == 0 and serialized_history:
+                for hist_key, hist_value in serialized_history.items():
                     ncfile.setncattr(f"history_{hist_key}", hist_value)
 
             # Create main data variable

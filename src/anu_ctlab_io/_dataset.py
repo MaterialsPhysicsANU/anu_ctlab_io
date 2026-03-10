@@ -39,7 +39,7 @@ class AbstractDataset(ABC):
 
     @property
     @abstractmethod
-    def history(self) -> dict[Any, Any] | str: ...
+    def history(self) -> History: ...
 
     @property
     @abstractmethod
@@ -73,7 +73,7 @@ class Dataset(AbstractDataset):
     _datatype: DataType | None
     _voxel_unit: VoxelUnit
     _voxel_size: tuple[np.float32, np.float32, np.float32]
-    _history: dict[Any, Any] | str
+    _history: History
 
     def __init__(
         self,
@@ -277,11 +277,8 @@ class Dataset(AbstractDataset):
         return self._dimension_names
 
     @property
-    def history(self) -> dict[Any, Any] | str:
-        """The history metadata associated with the :any:`Dataset`.
-
-        If parsing is enabled this will be a nested dict, otherwise it will be a dictionary
-        without any guaranteed structure."""
+    def history(self) -> History:
+        """The history metadata associated with the :any:`Dataset`."""
         return self._history
 
     @property
@@ -348,8 +345,6 @@ class Dataset(AbstractDataset):
             })
             ds.to_path("cropped.nc")  # History is preserved
         """
-        if not isinstance(self._history, dict):
-            self._history = {}
         self._history[key] = value
 
     def update_history(self, entries: dict[str, HistoryValue]) -> None:
@@ -368,8 +363,6 @@ class Dataset(AbstractDataset):
                 "20260128_150545_filter": {"operation": "gaussian_filter", "sigma": 2.0}
             })
         """
-        if not isinstance(self._history, dict):
-            self._history = {}
         self._history.update(entries)
 
     @classmethod
@@ -434,10 +427,7 @@ class Dataset(AbstractDataset):
         from datetime import datetime
 
         # Copy history from source
-        if isinstance(source._history, dict):
-            new_history = deepcopy(source._history)
-        else:
-            new_history = {}
+        new_history = deepcopy(source._history)
 
         # Add new history entry if provided
         if history_entry is not None:
