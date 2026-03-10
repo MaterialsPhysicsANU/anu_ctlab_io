@@ -253,17 +253,15 @@ def serialize_history(history_dict: History, *, indent: int = 4) -> str:
     Handles both structured (BeginSection/EndSection) and log-style formats.
     Attempts to detect format from dictionary structure and reconstruct appropriately.
 
-    Args:
-        history_dict: Parsed history dictionary from parse_history()
-        indent: Number of spaces to indent nested sections (default: 4)
+    :param history_dict: Parsed history dictionary from :func:`parse_history`.
+    :param indent: Number of spaces to indent nested sections.
+    :return: String representation of history that can be written back to NetCDF.
 
-    Returns:
-        String representation of history that can be written back to NetCDF
+    Example::
 
-    Examples:
-        >>> parsed = parse_history(raw_string)
-        >>> reconstructed = serialize_history(parsed)
-        >>> assert parse_history(reconstructed) == parsed  # Round-trip
+        parsed = parse_history(raw_string)
+        reconstructed = serialize_history(parsed)
+        assert parse_history(reconstructed) == parsed  # Round-trip
     """
     # Handle raw history passthrough
     if "_raw_history" in history_dict and len(history_dict) == 1:
