@@ -30,7 +30,6 @@ type KVPairs = dict[Token, Token | None]
 type Section = dict[Token, SectionContents]
 type SectionContents = dict[Token, Token | SectionContents | None]
 type LogValue = str | list[str]
-type LogContents = dict[str, LogValue]
 type HistoryValue = (
     str
     | bool
