@@ -17,6 +17,7 @@ from ome_zarr_models.v05.multiscales import Multiscale
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
@@ -34,7 +35,7 @@ def dataset_to_zarr(
     dataset_id: str | None = None,
     ome_zarr_version: OMEZarrVersion | None = OMEZarrVersion.v05,
     max_shard_size_mb: float = 1000.0,
-    history: dict[str, str] | None = None,
+    history: History | None = None,
     chunk_size_mb: float = 10.0,
     chunks: tuple[int, ...] | None = None,
     shards: tuple[int, ...] | None = None,
@@ -203,7 +204,7 @@ def _build_mango_attrs(
     dataset: Dataset,
     datatype: DataType,
     dataset_id: str | None,
-    history: dict[str, str] | None,
+    history: History | None,
     extra_attrs: dict[str, Any],
 ) -> dict[str, Any]:
     """Build mango metadata attributes."""
@@ -222,12 +223,10 @@ def _build_mango_attrs(
     if dataset_id is not None:
         mango_attrs["dataset_id"] = dataset_id
 
-    if history:
+    if history is not None:
         mango_attrs["history"] = history
-    elif isinstance(dataset.history, dict):
-        mango_attrs["history"] = dataset.history
     else:
-        mango_attrs["history"] = {}
+        mango_attrs["history"] = dataset.history
 
     mango_attrs.update(extra_attrs)
 
@@ -250,6 +249,7 @@ def _write_ome_zarr_group(
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
+
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
 

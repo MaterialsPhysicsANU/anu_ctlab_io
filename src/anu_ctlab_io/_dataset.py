@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -8,6 +9,7 @@ import dask.array as da
 import numpy as np
 
 from anu_ctlab_io._datatype import DataType, StorageDType
+from anu_ctlab_io._parse_history import History, HistoryValue
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
 
@@ -37,7 +39,7 @@ class AbstractDataset(ABC):
 
     @property
     @abstractmethod
-    def history(self) -> dict[Any, Any] | str: ...
+    def history(self) -> History: ...
 
     @property
     @abstractmethod
@@ -71,7 +73,7 @@ class Dataset(AbstractDataset):
     _datatype: DataType | None
     _voxel_unit: VoxelUnit
     _voxel_size: tuple[np.float32, np.float32, np.float32]
-    _history: dict[Any, Any] | str
+    _history: History
 
     def __init__(
         self,
@@ -81,7 +83,8 @@ class Dataset(AbstractDataset):
         voxel_unit: VoxelUnit,
         voxel_size: tuple[np.float32, np.float32, np.float32],
         datatype: DataType | None = None,
-        history: dict[str, Any] | None = None,
+        history: History | None = None,
+        dataset_id: str | None = None,
     ) -> None:
         """
         Manually constructs a :any:`Dataset`.
@@ -92,6 +95,7 @@ class Dataset(AbstractDataset):
         :param voxel_size: The size of each voxel in the :any:`Dataset`.
         :param datatype: The mango datatype of the data. This is an implementation detail only required for parsing NetCDF files.
         :param history: The history of the :any:`Dataset`.
+        :param dataset_id: The dataset identifier from the source file.
         """
         if history is None:
             history = {}
@@ -102,6 +106,7 @@ class Dataset(AbstractDataset):
         self._voxel_unit = voxel_unit
         self._voxel_size = voxel_size
         self._history = history
+        self._dataset_id = dataset_id
 
     @staticmethod
     def _import_with_extra(module: str, extra: str) -> ModuleType:
@@ -168,6 +173,7 @@ class Dataset(AbstractDataset):
         path: Path | str,
         *,
         filetype: str = "auto",
+        dataset_id: str | None = "auto",
         **kwargs: Any,
     ) -> None:
         """Writes the :any:`Dataset` to the given ``path``.
@@ -179,10 +185,24 @@ class Dataset(AbstractDataset):
         :param filetype: The format to write ("NetCDF", "zarr", or "auto"). If "auto", format is inferred from path extension.
             When inferring, NetCDF is assumed for paths ending in ``.nc`` or ``_nc``, and Zarr for paths ending in ``.zarr``.
             If datatype is present in filename (e.g., "tomo_output"), NetCDF is assumed.
+        :param dataset_id: Dataset identifier to write to file metadata. Options:
+            - "auto" (default): Use self.dataset_id if available, otherwise generate new
+            - str: Use this exact value
+            - None: Generate new (legacy behavior)
         :param kwargs: Additional keyword arguments passed to the format-specific writer.
         """
         if isinstance(path, str):
             path = Path(path)
+
+        # Handle dataset_id parameter
+        if dataset_id == "auto":
+            resolved_dataset_id = self._dataset_id
+        else:
+            resolved_dataset_id = dataset_id
+
+        # Add resolved dataset_id to kwargs if not already present
+        if "dataset_id" not in kwargs:
+            kwargs["dataset_id"] = resolved_dataset_id
 
         match filetype:
             case "NetCDF":
@@ -257,11 +277,8 @@ class Dataset(AbstractDataset):
         return self._dimension_names
 
     @property
-    def history(self) -> dict[Any, Any] | str:
-        """The history metadata associated with the :any:`Dataset`.
-
-        If parsing is enabled this will be a nested dict, otherwise it will be a dictionary
-        without any guaranteed structure."""
+    def history(self) -> History:
+        """The history metadata associated with the :any:`Dataset`."""
         return self._history
 
     @property
@@ -275,6 +292,11 @@ class Dataset(AbstractDataset):
 
         This is a `Dask Array <https://docs.dask.org/en/stable/array.html>`_."""
         return self._data
+
+    @property
+    def dataset_id(self) -> str | None:
+        """The dataset identifier from the source file, if available."""
+        return self._dataset_id
 
     @property
     def mask(self) -> da.Array:
@@ -295,12 +317,142 @@ class Dataset(AbstractDataset):
         This has better performance than manually creating a masked_array using `mask` in the case
         that the loaded datatype has no mask (i.e., OME-Zarr data), as it creates a masked array
         with `nomask` in these situations."""
-        print(self._datatype)
         return cast(
             da.Array,
             da.ma.masked_array(self._data, mask=self.mask)
             if self._datatype is not None
             else da.ma.masked_array(self._data),
+        )
+
+    def add_to_history(self, key: str, value: HistoryValue) -> None:
+        """Add an entry to the dataset's history metadata.
+
+        This method mutates the dataset in-place by adding a new history entry.
+        The history will be automatically serialized when writing to NetCDF or Zarr formats.
+
+        :param key: The history key/identifier. Convention is to use timestamps
+            (e.g., "20260128_150530_crop") but any string is valid.
+        :param value: The history entry value. Can be a dict with operation details
+            (recommended) or a string. Dicts will be serialized to structured format.
+
+        Example::
+
+            ds = Dataset.from_path("data.nc")
+            ds.add_to_history("20260128_crop", {
+                "operation": "crop",
+                "z_range": [10, 50],
+                "reason": "Focus on region of interest"
+            })
+            ds.to_path("cropped.nc")  # History is preserved
+        """
+        self._history[key] = value
+
+    def update_history(self, entries: dict[str, HistoryValue]) -> None:
+        """Update the dataset's history with multiple entries at once.
+
+        This method mutates the dataset in-place by adding multiple history entries.
+        Equivalent to calling :any:`add_to_history` multiple times.
+
+        :param entries: Dictionary of history entries to add. Keys are history identifiers,
+            values are the entry data (dicts or strings).
+
+        Example::
+
+            ds.update_history({
+                "20260128_150530_crop": {"operation": "crop", "z_range": [10, 50]},
+                "20260128_150545_filter": {"operation": "gaussian_filter", "sigma": 2.0}
+            })
+        """
+        self._history.update(entries)
+
+    @classmethod
+    def from_modified(
+        cls,
+        source: "Dataset",
+        *,
+        data: da.Array | None = None,
+        voxel_size: tuple[np.float32, np.float32, np.float32] | None = None,
+        voxel_unit: VoxelUnit | None = None,
+        dimension_names: tuple[str, ...] | None = None,
+        datatype: DataType | None = None,
+        history_entry: HistoryValue | None = None,
+        history_key: str | None = None,
+        dataset_id_suffix: str | None = None,
+    ) -> "Dataset":
+        """Create a new Dataset from a modified version of an existing one.
+
+        This factory method creates a new Dataset instance with selected attributes
+        modified, while preserving the rest from the source. Optionally adds a history
+        entry documenting the modification. This follows an immutable pattern where
+        the source dataset is not modified.
+
+        :param source: The source Dataset to create a modified copy from.
+        :param data: New data array. If None, uses source's data.
+        :param voxel_size: New voxel size. If None, uses source's voxel_size.
+        :param voxel_unit: New voxel unit. If None, uses source's voxel_unit.
+        :param dimension_names: New dimension names. If None, uses source's dimension_names.
+        :param datatype: New datatype. If None, uses source's datatype.
+        :param history_entry: History entry to add documenting the modification.
+            If provided, a new history entry is added with the given key.
+        :param history_key: Key for the history entry. If None and history_entry is provided,
+            auto-generates a timestamp-based key like "20260128_150530_modification".
+        :param dataset_id_suffix: Suffix to append to the dataset_id. If provided,
+            the new dataset's dataset_id will be "{source.dataset_id}_{suffix}".
+            If source has no dataset_id, this parameter is ignored.
+        :return: New Dataset instance with modifications applied.
+
+        Example::
+
+            ds = Dataset.from_path("data.nc")
+
+            # Create cropped version with automatic history and modified dataset_id
+            cropped = Dataset.from_modified(
+                ds,
+                data=ds.data[10:50, :, :],
+                history_entry={"operation": "crop", "z_range": [10, 50]},
+                history_key="20260128_crop",
+                dataset_id_suffix="cropped"
+            )
+            # Result: dataset_id becomes "20250314_012913_tomoLoRes_SS_cropped"
+
+            # Chain modifications
+            scaled = Dataset.from_modified(
+                cropped,
+                voxel_size=(0.1, 0.1, 0.1),
+                history_entry={"operation": "rescale", "new_voxel_size": [0.1, 0.1, 0.1]},
+                dataset_id_suffix="scaled"
+            )
+            # Result: dataset_id becomes "20250314_012913_tomoLoRes_SS_cropped_scaled"
+        """
+        from datetime import datetime
+
+        # Copy history from source
+        new_history = deepcopy(source._history)
+
+        # Add new history entry if provided
+        if history_entry is not None:
+            if history_key is None:
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                history_key = f"{timestamp}_modification"
+            new_history[history_key] = history_entry
+
+        # Modify dataset_id if suffix provided
+        new_dataset_id = source._dataset_id
+        if dataset_id_suffix is not None and source._dataset_id is not None:
+            new_dataset_id = f"{source._dataset_id}_{dataset_id_suffix}"
+
+        return cls(
+            data=data if data is not None else source._data,
+            dimension_names=(
+                dimension_names
+                if dimension_names is not None
+                else source._dimension_names
+            ),
+            voxel_unit=voxel_unit if voxel_unit is not None else source._voxel_unit,
+            voxel_size=voxel_size if voxel_size is not None else source._voxel_size,
+            datatype=datatype if datatype is not None else source._datatype,
+            history=new_history,
+            dataset_id=new_dataset_id,
         )
 
 

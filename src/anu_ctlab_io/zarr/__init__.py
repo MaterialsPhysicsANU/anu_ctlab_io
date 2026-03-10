@@ -9,12 +9,11 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.common.coordinate_transformations import VectorScale
-from ome_zarr_models.v05.image import Image
-from ome_zarr_models.v05.multiscales import ValidTransform
+from ome_zarr_models.common.coordinate_transformations import ValidTransform
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._parse_history import History
 from anu_ctlab_io._voxel_properties import VoxelUnit
 from anu_ctlab_io.zarr._writer import OMEZarrVersion, dataset_to_zarr
 
@@ -46,6 +45,8 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
     voxel_size = attrs["voxel_size_xyz"]
     datatype = DataType.from_basename(attrs["basename"])
     history = attrs["history"]
+    dataset_id_raw = attrs.get("dataset_id")
+    dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
 
     return Dataset(
         data=data,
@@ -54,10 +55,13 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
         history=history,
+        dataset_id=dataset_id,
     )
 
 
 def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
+    from ome_zarr_models.v05.image import Image
+
     zg = zarr.open_group(path, zarr_format=3)
     ome = Image.from_zarr(zg)
     multiscales = ome.ome_attributes.multiscales
@@ -101,9 +105,11 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
 
     # Calculate the voxel size from the transformations
     def extract_vector_scale(
-        transformations: ValidTransform | None,
+        transformations: "ValidTransform | None",
     ) -> tuple[float, float, float]:
         """Extracts the scale from a list of coordinate transformations, expects VectorScale."""
+        from ome_zarr_models.common.coordinate_transformations import VectorScale
+
         if transformations and len(transformations) > 0:
             scale_transform = transformations[0]
             if isinstance(scale_transform, VectorScale):
@@ -126,7 +132,8 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
     if "mango" not in zg.attrs:
         # Handle a plain OME-Zarr dataset that has no mango attributes
         datatype = None
-        history: dict[str, Any] = {}
+        history: History = {}
+        dataset_id = None
     else:
         mango_attrs = zg.attrs["mango"]
         if not isinstance(mango_attrs, Mapping):
@@ -139,8 +146,9 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
                 f'Expected mango "basename" to be a str, got {type(basename)}'
             ) from None
         datatype = DataType.from_basename(basename)
-        # NOTE: Should refine history from Any to JSON
         history = mango_attrs["history"]  # type: ignore[assignment]
+        dataset_id_raw = mango_attrs.get("dataset_id")
+        dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
 
     return Dataset(
         data=data,
@@ -149,4 +157,5 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
         history=history,
+        dataset_id=dataset_id,
     )
