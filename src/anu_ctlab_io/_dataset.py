@@ -1,5 +1,6 @@
 import re
 from abc import ABC, abstractmethod
+from copy import deepcopy
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
@@ -522,7 +523,7 @@ class Dataset(AbstractDataset):
 
         # Copy history from source
         if isinstance(source._history, dict):
-            new_history = source._history.copy()
+            new_history = deepcopy(source._history)
         else:
             new_history = {}
 
