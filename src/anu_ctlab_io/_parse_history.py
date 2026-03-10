@@ -106,28 +106,12 @@ def _convert_tokens_to_values(obj: object) -> Any:
     if isinstance(obj, Token):
         value = obj.value
 
-        # Strip angle brackets if present
         if isinstance(value, str):
-            # Check for multiple angle brackets (array format)
-            if value.startswith("<") and ">" in value:
-                # Try to parse as array: <v1><v2><v3>
-                matches = re.findall(r"<([^>]+)>", value)
-                if len(matches) > 1:
-                    # Multiple values - return as list
-                    result: list[Any] = []
-                    for match in matches:
-                        # Try to convert to number
-                        try:
-                            if "." in match:
-                                result.append(float(match))
-                            else:
-                                result.append(int(match))
-                        except ValueError:
-                            result.append(match)
-                    return result
-                elif len(matches) == 1:
-                    # Single angle bracket value - strip brackets
-                    value = matches[0]
+            stripped = _strip_angle_brackets(value)
+            # _strip_angle_brackets returns a list or a (possibly modified) str
+            if not isinstance(stripped, str):
+                return stripped
+            value = stripped
 
             # Convert booleans
             if value in ("True", "true"):
