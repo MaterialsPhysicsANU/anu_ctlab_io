@@ -189,7 +189,7 @@ def test_netcdf_history_roundtrip():
     3. The roundtrip preserves the history structure (minor whitespace differences may occur)
     """
     # Load original NetCDF file with history
-    original_path = Path("tests/data/tomoLoRes_SS.nc")
+    original_path = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
     original_dataset = anu_ctlab_io.Dataset.from_path(original_path, parse_history=True)
 
     # Verify original has parsed history (dict, not str)
