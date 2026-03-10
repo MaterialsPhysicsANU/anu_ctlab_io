@@ -57,9 +57,7 @@ class TestExtractBaseName:
         assert result == "tomo_LoRes_SS_v2"
 
 
-@pytest.mark.skipif(
-    not pytest.importorskip("netCDF4", reason="Requires 'netcdf' extra"), reason=""
-)
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 class TestDatasetIdNetCDF:
     """Tests for dataset_id tracking with NetCDF format."""
 
