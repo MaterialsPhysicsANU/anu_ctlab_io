@@ -9,7 +9,7 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
-from ome_zarr_models.v05.multiscales import ValidTransform
+from ome_zarr_models.common.coordinate_transformations import ValidTransform
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
