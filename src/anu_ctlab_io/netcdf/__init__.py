@@ -93,6 +93,7 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
     if os.path.isdir(path):
         possible_files = [os.path.join(path, p) for p in os.listdir(path)]
         files = sorted(list(filter(os.path.isfile, possible_files)))
+        last_exc: OSError | None = None
         for engine in _read_engines():
             try:
                 return xr.open_mfdataset(
@@ -107,13 +108,14 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
                     data_vars=[f"{datatype}"],
                     **kwargs,
                 )
-            except OSError:
-                pass
+            except OSError as e:
+                last_exc = e
         raise OSError(
             f"Could not read netCDF files in {path} with any available engine."
-        )
+        ) from last_exc
     else:
         chunks = kwargs.pop("chunks", -1)
+        last_exc = None
         for engine in _read_engines():
             try:
                 return xr.open_dataset(
@@ -123,9 +125,11 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
                     chunks=chunks,
                     **kwargs,
                 )
-            except OSError:
-                pass
-        raise OSError(f"Could not read netCDF file {path} with any available engine.")
+            except OSError as e:
+                last_exc = e
+        raise OSError(
+            f"Could not read netCDF file {path} with any available engine."
+        ) from last_exc
 
 
 def _read_engines() -> list[str]:
