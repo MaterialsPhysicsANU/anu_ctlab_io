@@ -202,24 +202,20 @@ def _write_single_netcdf(
     if not str(path).endswith(".nc"):
         path = Path(str(path) + ".nc")
 
-    zdim, ydim, xdim = data_array.shape
-    datatype_str = str(datatype)
-
-    with nc4.Dataset(path, "w", format="NETCDF4", libver="earliest") as ncfile:
-        _create_dimensions(ncfile, datatype_str, zdim, ydim, xdim)
-        _set_global_attributes(
-            ncfile,
-            zdim,
-            zdim,
-            0,
-            zdim - 1,
-            1,
-            common_attrs,
-            serialized_history,
-            True,
-        )
-        data_var = _create_data_variable(ncfile, datatype, compression_level)
-        data_var[:] = np.asarray(data_array)
+    zdim, _ydim, _xdim = data_array.shape
+    _write_block(
+        np.asarray(data_array),
+        path,
+        datatype,
+        zdim,
+        0,
+        zdim - 1,
+        1,
+        common_attrs,
+        compression_level,
+        serialized_history,
+        True,
+    )
 
 
 def _write_block(
