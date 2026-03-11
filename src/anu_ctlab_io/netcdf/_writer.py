@@ -140,7 +140,7 @@ def _set_global_attributes(
     z_end: int,
     num_files: int,
     common_attrs: dict[str, Any],
-    history: dict[str, str] | None,
+    serialized_history: dict[str, str] | None,
     include_history: bool,
 ) -> None:
     """Set global NetCDF attributes."""
@@ -154,8 +154,8 @@ def _set_global_attributes(
             key, np.bytes_(value.encode("ascii")) if isinstance(value, str) else value
         )
 
-    if include_history and history:
-        for key, value in history.items():
+    if include_history and serialized_history:
+        for key, value in serialized_history.items():
             ncfile.setncattr(
                 f"history_{key}",
                 np.bytes_(value.encode("ascii")) if isinstance(value, str) else value,
@@ -228,7 +228,7 @@ def _write_block(
     num_files: int,
     common_attrs: dict[str, Any],
     compression_level: int,
-    history: dict[str, str] | None,
+    serialized_history: dict[str, str] | None,
     include_history: bool,
 ) -> None:
     """Create and write a single NetCDF block file (runs inside a dask task)."""
@@ -245,7 +245,7 @@ def _write_block(
             z_end,
             num_files,
             common_attrs,
-            history,
+            serialized_history,
             include_history,
         )
         data_var = _create_data_variable(ncfile, datatype, compression_level)
