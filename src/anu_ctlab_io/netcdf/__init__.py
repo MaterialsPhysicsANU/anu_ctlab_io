@@ -15,11 +15,10 @@ from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import parse_history
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
-if (
-    importlib.util.find_spec("netCDF4") is None
-    and importlib.util.find_spec("h5netcdf") is None
-):
-    raise ImportError("Neither netCDF4 nor h5netcdf could be imported.")
+if importlib.util.find_spec("h5netcdf") is None:
+    raise ImportError(
+        "h5netcdf is required. Install it with: pip install anu_ctlab_io[netcdf]"
+    )
 
 from anu_ctlab_io.netcdf._writer import dataset_to_netcdf
 
@@ -132,10 +131,9 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
         ) from last_exc
 
 
+# Maybe netCDF3 support becomes optional at some point?
 def _read_engines() -> list[str]:
-    engines = []
-    if importlib.util.find_spec("h5netcdf") is not None:
-        engines.append("h5netcdf")
+    engines = ["h5netcdf"]
     if importlib.util.find_spec("netCDF4") is not None:
         engines.append("netCDF4")
     return engines
