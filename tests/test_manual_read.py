@@ -4,13 +4,12 @@ import numpy as np
 import pytest
 import xarray as xr
 
-_HAS_ZARR = importlib.util.find_spec("zarr")
-_HAS_NETCDF4 = importlib.util.find_spec("netCDF4")
+_HAS_NETCDF = importlib.util.find_spec("h5netcdf")
 
 
-@pytest.mark.skipif(not _HAS_NETCDF4, reason="Requires 'netcdf' extra")
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_manual_read_netcdf_single():
-    dataset = xr.open_mfdataset("tests/data/tomoLoRes_SS.nc")
+    dataset = xr.open_mfdataset("tests/data/tomoLoRes_SS.nc", engine="h5netcdf")
 
     # Load array variable and check shape
     array = dataset["tomo"]
@@ -34,10 +33,11 @@ def test_manual_read_netcdf_single():
     assert (array[:] == np.arange(np.prod(array.shape)).reshape(array.shape)).all()
 
 
-@pytest.mark.skipif(not _HAS_NETCDF4, reason="Requires 'netcdf' extra")
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_manual_read_netcdf_multi():
     dataset = xr.open_mfdataset(
         "tests/data/tomoHiRes_SS_nc/*",
+        engine="h5netcdf",
         data_vars=["tomo"],
         combine="nested",
         concat_dim="tomo_zdim",
