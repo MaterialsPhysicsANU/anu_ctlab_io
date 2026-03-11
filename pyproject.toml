@@ -98,11 +98,3 @@ extend-select = [
   "I", # isort
   "UP", # pyupgrade
 ]
-
-[[tool.mypy.overrides]]
-module = "distributed"
-ignore_missing_imports = true
-
-[[tool.mypy.overrides]]
-module = "distributed.*"
-ignore_missing_imports = true
