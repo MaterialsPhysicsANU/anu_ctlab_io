@@ -15,11 +15,10 @@ from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import parse_history
 from anu_ctlab_io._voxel_properties import VoxelUnit
 
-if (
-    importlib.util.find_spec("netCDF4") is None
-    and importlib.util.find_spec("h5netcdf") is None
-):
-    raise ImportError("Neither netCDF4 nor h5netcdf could be imported.")
+if importlib.util.find_spec("h5netcdf") is None:
+    raise ImportError(
+        "h5netcdf is required. Install it with: pip install anu_ctlab_io[netcdf]"
+    )
 
 from anu_ctlab_io.netcdf._writer import dataset_to_netcdf
 
@@ -93,19 +92,48 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
     if os.path.isdir(path):
         possible_files = [os.path.join(path, p) for p in os.listdir(path)]
         files = sorted(list(filter(os.path.isfile, possible_files)))
-        dataset = xr.open_mfdataset(
-            files,
-            combine="nested",
-            concat_dim=[f"{datatype}_zdim"],
-            combine_attrs="drop_conflicts",
-            coords="minimal",
-            compat="override",
-            mask_and_scale=False,
-            data_vars=[f"{datatype}"],
-            **kwargs,
-        )
+        last_exc: OSError | None = None
+        for engine in _read_engines():
+            try:
+                return xr.open_mfdataset(
+                    files,
+                    engine=engine,
+                    combine="nested",
+                    concat_dim=[f"{datatype}_zdim"],
+                    combine_attrs="drop_conflicts",
+                    coords="minimal",
+                    compat="override",
+                    mask_and_scale=False,
+                    data_vars=[f"{datatype}"],
+                    **kwargs,
+                )
+            except OSError as e:
+                last_exc = e
+        raise OSError(
+            f"Could not read netCDF files in {path} with any available engine."
+        ) from last_exc
     else:
-        dataset = xr.open_dataset(
-            path, mask_and_scale=False, chunks=kwargs.pop("chunks", -1), **kwargs
-        )
-    return dataset
+        chunks = kwargs.pop("chunks", -1)
+        last_exc = None
+        for engine in _read_engines():
+            try:
+                return xr.open_dataset(
+                    path,
+                    engine=engine,
+                    mask_and_scale=False,
+                    chunks=chunks,
+                    **kwargs,
+                )
+            except OSError as e:
+                last_exc = e
+        raise OSError(
+            f"Could not read netCDF file {path} with any available engine."
+        ) from last_exc
+
+
+# Maybe netCDF3 support becomes optional at some point?
+def _read_engines() -> list[str]:
+    engines = ["h5netcdf"]
+    if importlib.util.find_spec("netCDF4") is not None:
+        engines.append("netCDF4")
+    return engines
