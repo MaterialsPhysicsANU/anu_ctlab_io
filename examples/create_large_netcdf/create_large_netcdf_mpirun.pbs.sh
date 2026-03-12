@@ -21,4 +21,4 @@ fi
 
 # NOTE: Not portable, needs to run from project directory
 mpirun -n "${PBS_NCPUS}" \
-    "${PBS_O_WORKDIR}/.venv/bin/create-large-netcdf"
+    "${PBS_O_WORKDIR}/.venv/bin/create-large-netcdf-mpirun"

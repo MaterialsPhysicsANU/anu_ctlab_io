@@ -12,12 +12,13 @@ dependencies = [
     "bokeh>=3.1.0",
     "dask[distributed]>=2025.2.0",
     "dask-jobqueue>=0.9.0",
-    "mpi4py>=3.1.0",
+    "dask-mpi>=2021.11.0",
     "numpy>=2.2.3",
 ]
 
 [project.scripts]
-create-large-netcdf = "create_large_netcdf:main"
+create-large-netcdf-mpirun = "create_large_netcdf.mpirun:main"
+create-large-netcdf-pbscluster = "create_large_netcdf.pbscluster:main"
 
 [tool.uv.sources]
 anu-ctlab-io = { path = "../..", editable = true }
