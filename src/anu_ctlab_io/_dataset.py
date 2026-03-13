@@ -213,6 +213,10 @@ class Dataset(AbstractDataset):
                 zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
                 zarr_mod.dataset_to_zarr(self, path, **kwargs)
                 return
+            case "raw":
+                raw_mod = import_module("anu_ctlab_io.raw")
+                raw_mod.dataset_to_raw(self, path)
+                return
             case "auto":
                 # Check for explicit extensions
                 if path.name.endswith(".nc") or path.name.endswith("_nc"):
@@ -225,6 +229,11 @@ class Dataset(AbstractDataset):
                 if path.name.endswith(".zarr"):
                     zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
                     zarr_mod.dataset_to_zarr(self, path, **kwargs)
+                    return
+
+                if path.name.endswith(".raw"):
+                    raw_mod = import_module("anu_ctlab_io.raw")
+                    raw_mod.dataset_to_raw(self, path)
                     return
 
                 # Check if datatype is in filename (Mango convention)
