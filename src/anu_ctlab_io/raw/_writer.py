@@ -28,6 +28,6 @@ def dataset_to_raw(dataset: Dataset, path: Path) -> None:
 
     with path.open("wb") as f:
         for z_block in z_delayed:
-            slab: np.ndarray = z_block.compute()  # type: ignore[assignment]
+            slab: np.ndarray = z_block.compute()
             slab = slab.astype(le_dtype, copy=False)
             f.write(slab.tobytes(order="C"))
