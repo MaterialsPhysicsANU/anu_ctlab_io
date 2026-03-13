@@ -1,7 +1,8 @@
 """Create a 10000x3000x3000 NetCDF tomogram with smoothly varying data.
 
-Launched from a lightweight PBS driver job. PBSCluster submits worker PBS
-sub-jobs to Gadi's normal queue. The Dask scheduler runs in the driver process.
+Launched from a lightweight PBS driver job or login node.
+PBSCluster submits worker PBS sub-jobs.
+The Dask scheduler runs in the driver process.
 """
 
 import os
@@ -38,7 +39,7 @@ def main():
         queue="normal",
         account=account,
         walltime=WORKER_WALLTIME,
-        job_directives_skip=["select", "ncpus", "mem"],
+        job_directives_skip=["select"],
         job_extra_directives=[
             f"-l ncpus={CORES_PER_JOB}",
             f"-l mem={MEMORY_PER_JOB}",
