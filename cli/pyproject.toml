@@ -1,0 +1,21 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anu-ctlab-io-cli"
+version = "1.0.0"
+requires-python = ">=3.12"
+dependencies = [
+    "anu-ctlab-io[all]",
+    "typer",
+]
+
+[project.scripts]
+anu-ctlab-io-cli = "anu_ctlab_io_cli._cli:main"
+
+[tool.uv.sources]
+anu-ctlab-io = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anu_ctlab_io_cli"]
