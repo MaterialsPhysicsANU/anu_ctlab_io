@@ -49,7 +49,11 @@ def main():
         ],
         local_directory="$PBS_JOBFS/dask-scratch-space",
         log_directory=str(log_dir),
-        scheduler_options={"host": scheduler_host, "port": 0, "dashboard_address": ":0"},
+        scheduler_options={
+            "host": scheduler_host,
+            "port": 0,
+            "dashboard_address": ":0",
+        },
     )
     cluster.scale(jobs=1)
 

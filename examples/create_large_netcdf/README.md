@@ -10,11 +10,11 @@ Demonstrates two approaches to spinning up a multi-node `dask` job on Gadi.
 
 All processes are launched together via `mpirun`. `dask-mpi` assigns roles by rank:
 
-| Rank | Role |
-|------|------|
-| 0 | Scheduler |
-| 1 | Client (runs the computation) |
-| 2+ | Workers |
+| Rank | Role                          |
+| ---- | ----------------------------- |
+| 0    | Scheduler                     |
+| 1    | Client (runs the computation) |
+| 2+   | Workers                       |
 
 **Resources:** 2 nodes × 48 CPUs = 96 workers.
 
