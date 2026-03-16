@@ -1,9 +1,9 @@
-name: publish
+name: publish-cli
 
 on:
   push:
     tags:
-      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "cli-v[0-9]+.[0-9]+.[0-9]+"
 
 jobs:
   build:
@@ -15,7 +15,7 @@ jobs:
         with:
           version: "0.10.10"
       - name: Build source distribution
-        run: uv build
+        run: uv build --package anu-ctlab-io-cli
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-files-sdist
