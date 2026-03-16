@@ -1,0 +1,7 @@
+# Gadi output/error files
+*.e*
+*.o*
+
+output/
+
+uv.lock
