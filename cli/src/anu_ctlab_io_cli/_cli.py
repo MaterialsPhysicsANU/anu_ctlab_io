@@ -26,11 +26,16 @@ def cli(
     output: Annotated[Path, typer.Argument(help="Output file path.")],
     input_format: Annotated[
         InputStorageFormat,
-        typer.Option("--input-format", help="Input format (default: auto-detect from extension)."),
+        typer.Option(
+            "--input-format", help="Input format (default: auto-detect from extension)."
+        ),
     ] = InputStorageFormat.auto,
     output_format: Annotated[
         OutputStorageFormat,
-        typer.Option("--output-format", help="Output format (default: auto-detect from extension)."),
+        typer.Option(
+            "--output-format",
+            help="Output format (default: auto-detect from extension).",
+        ),
     ] = OutputStorageFormat.auto,
 ) -> None:
     """Convert between ANU CTLab array formats."""
