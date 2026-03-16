@@ -60,9 +60,30 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
 
 
 def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
+    zg = zarr.open_group(path, zarr_format=3)
+
+    # Filter out anu_ctlab_io specific kwargs that shouldn't be passed to other libraries
+    parse_history = kwargs.pop("parse_history", True)
+
+    # Check if this is an OME-Zarr group (has 'ome' metadata)
+    if "ome" in zg.attrs:
+        return _dataset_from_ome_zarr_group(path, zg, parse_history, **kwargs)
+    # Check if this is a mango-only zarr group (has 'mango' but not 'ome')
+    elif "mango" in zg.attrs:
+        return _dataset_from_mango_zarr_group(path, zg, parse_history, **kwargs)
+    else:
+        raise ValueError(
+            f"Zarr group at {path} has neither 'ome' nor 'mango' attributes. "
+            "Cannot determine how to load this dataset."
+        )
+
+
+def _dataset_from_ome_zarr_group(
+    path: Path, zg: zarr.Group, parse_history: bool, **kwargs: Any
+) -> Dataset:
+    """Load a zarr group with OME metadata (with or without mango attributes)."""
     from ome_zarr_models.v05.image import Image
 
-    zg = zarr.open_group(path, zarr_format=3)
     ome = Image.from_zarr(zg)
     multiscales = ome.ome_attributes.multiscales
     if len(multiscales) > 1:
@@ -156,6 +177,71 @@ def _dataset_from_zarr_group(path: Path, **kwargs: Any) -> Dataset:
         datatype=datatype,
         voxel_unit=voxel_unit,
         voxel_size=voxel_size,
+        history=history,
+        dataset_id=dataset_id,
+    )
+
+
+def _dataset_from_mango_zarr_group(
+    path: Path, zg: zarr.Group, parse_history: bool, **kwargs: Any
+) -> Dataset:
+    """Load a zarr group with only mango metadata (no OME metadata).
+
+    This handles zarr groups created by mango that have mango attributes but
+    are not OME-Zarr compliant. The group typically contains a subdirectory '0'
+    with the actual array data.
+    """
+    mango_attrs = zg.attrs["mango"]
+    if not isinstance(mango_attrs, Mapping):
+        raise TypeError(
+            f'Expected "mango" attribute to be a Mapping, got {type(mango_attrs)}'
+        ) from None
+
+    # Extract mango metadata
+    basename = mango_attrs["basename"]
+    if not isinstance(basename, str):
+        raise TypeError(
+            f'Expected mango "basename" to be a str, got {type(basename)}'
+        ) from None
+    datatype = DataType.from_basename(basename)
+    history: History = mango_attrs["history"]  # type: ignore[assignment]
+    dataset_id_raw = mango_attrs.get("dataset_id")
+    dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
+
+    voxel_size_xyz_raw = mango_attrs.get("voxel_size_xyz")
+    if voxel_size_xyz_raw is None:
+        raise ValueError(
+            f"Mango-only zarr at {path} is missing 'voxel_size_xyz' attribute"
+        )
+    if not isinstance(voxel_size_xyz_raw, list | tuple):
+        raise TypeError(
+            f"Expected 'voxel_size_xyz' to be a list or tuple, got {type(voxel_size_xyz_raw)}"
+        )
+    voxel_size = tuple(float(v) for v in voxel_size_xyz_raw)
+
+    voxel_unit_str = mango_attrs.get("voxel_unit")
+    if voxel_unit_str is None:
+        voxel_unit = VoxelUnit.VOXEL
+    elif isinstance(voxel_unit_str, str):
+        voxel_unit = VoxelUnit.from_str(voxel_unit_str)
+    else:
+        raise TypeError(
+            f"Expected 'voxel_unit' to be a str, got {type(voxel_unit_str)}"
+        )
+
+    # Load the data array from the '0' subdirectory
+    data = da.from_zarr(path, component="0", **kwargs)  # type: ignore[no-untyped-call]
+
+    # Get dimension names from the array metadata
+    za = zarr.open_array(path / "0", zarr_format=3)
+    dimension_names: tuple[str, ...] = za.metadata.dimension_names  # type: ignore[assignment, union-attr]
+
+    return Dataset(
+        data=data,
+        dimension_names=dimension_names,
+        datatype=datatype,
+        voxel_unit=voxel_unit,
+        voxel_size=voxel_size,  # type: ignore[arg-type]
         history=history,
         dataset_id=dataset_id,
     )
