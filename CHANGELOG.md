@@ -7,10 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-03-16
+
 ### Added
 
 - Add netcdf writing via the `anu_ctlab_io.netcdf.dataset_to_netcdf()` function
 - Add zarr writing via the `anu_ctlab_io.zarr.dataset_to_zarr()` function (defaults to OME-Zarr format)
+- Add raw writing via the `anu_ctlab_io.raw.dataset_to_raw()` function
 - Add `Dataset.to_path()` to write to both zarr and netcdf formats
 - Add badges to docs/introduction.rst
 - Add `py312-dask-dev` test environment to test against fixed Dask warning logic
@@ -19,10 +22,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `Dataset.update_history()` method for bulk updating history entries
 - Add `Dataset.from_modified()` classmethod for creating modified datasets with automatic history tracking
 - Add `dataset_id` property to `Dataset` for tracking source file identifiers
+- Add `create_large_netcdf` examples for parallel NetCDF writing with Dask
 
 ### Changed
 
 - NetCDF writer now automatically serializes parsed history dicts when writing
+- NetCDF writing is now performant with per-block task scheduling, scaling with the `distributed` scheduler
+- Switch to `h5netcdf` for NetCDF writing and reading; fall back to `netcdf4` for legacy NetCDF 3 data
 
 ### Fixed
 
@@ -120,7 +126,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for reading ANU CTLab NetCDF files
 - Support for outputting Xarray data
 
-[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.1.0...HEAD
+[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.1.0
 [1.0.1]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.1
 [1.0.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.0.0
