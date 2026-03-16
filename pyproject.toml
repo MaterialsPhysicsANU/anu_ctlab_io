@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "anu-ctlab-io"
-version = "1.1.0"
+version = "1.2.0"
 description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.rst"
 requires-python = ">=3.12"
