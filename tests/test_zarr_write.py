@@ -555,6 +555,52 @@ def test_user_shapes_used_without_validation():
 
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_irregular_dask_chunks_write_correct_data():
+    """Regression test: irregular dask chunk structure must not produce zeros in output.
+
+    When a dask array has irregular chunks (e.g. from a multi-block NetCDF read where
+    the final z-block is smaller than the rest), the old code compared data_array.chunksize
+    (the scalar *maximum* chunk size) against outer_shards. This comparison could falsely
+    pass, skipping the rechunk and causing to_zarr to write misaligned data — manifesting
+    as large regions of zeros in the output Zarr store.
+
+    The fix compares the full .chunks tuple against the expected uniform layout instead.
+    """
+    # Simulate the irregular chunk structure produced by xarray.open_mfdataset on a
+    # directory of NetCDF blocks: each block contributes one chunk in z, and the final
+    # block is smaller than the rest.
+    shape = (105, 64, 64)
+    full_data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    # Build a dask array with irregular z-chunks (10 x 10 + 1 x 5), matching what
+    # open_mfdataset produces from split NetCDF files.
+    irregular_z_chunks = (10,) * 10 + (5,)
+    data = da.from_array(full_data, chunks=(irregular_z_chunks, (64,), (64,)))
+    assert data.chunks[0] == irregular_z_chunks  # confirm irregular
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "irregular_chunks.zarr"
+
+        anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path)
+
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        result = read_dataset.data.compute()
+
+        assert result.shape == shape
+        assert np.array_equal(result, full_data), (
+            "Output contains incorrect values (possibly zeros) due to misaligned chunks"
+        )
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_no_false_warning_with_remainder_chunks():
     """Test that no false-positive warning occurs when shards don't divide evenly into array size.
 
