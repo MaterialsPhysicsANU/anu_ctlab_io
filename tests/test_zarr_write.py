@@ -665,11 +665,7 @@ def test_irregular_dask_chunks_write_correct_data():
 
         assert result.shape == shape
         assert np.array_equal(result, full_data), (
-<<<<<<< Updated upstream
-            "Output contains incorrect values (possibly zeros) due to misaligned chunks"
-=======
             "Output contains incorrect values (possibly zeros) due to misaligned chunk writes"
->>>>>>> Stashed changes
         )
 
 
