@@ -4,6 +4,7 @@ from pathlib import Path
 import dask.array as da
 import numpy as np
 import pytest
+from zarr.api.asynchronous import full
 
 try:
     from dask.array.core import PerformanceWarning
@@ -13,6 +14,13 @@ try:
     _HAS_ZARR = True
 except ImportError:
     _HAS_ZARR = False
+
+try:
+    import anu_ctlab_io.netcdf
+
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
 
 import anu_ctlab_io
 
@@ -556,47 +564,112 @@ def test_user_shapes_used_without_validation():
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_irregular_dask_chunks_write_correct_data():
-    """Regression test: irregular dask chunk structure must not produce zeros in output.
+    """Regression test: dask chunks smaller than the shard must not produce zeros in output.
 
-    When a dask array has irregular chunks (e.g. from a multi-block NetCDF read where
-    the final z-block is smaller than the rest), the old code compared data_array.chunksize
-    (the scalar *maximum* chunk size) against outer_shards. This comparison could falsely
-    pass, skipping the rechunk and causing to_zarr to write misaligned data — manifesting
-    as large regions of zeros in the output Zarr store.
+    dask's to_zarr, when writing to an existing zarr.Array, calls normalize_chunks("auto")
+    internally and rechunks to that size before writing — ignoring the caller's chunk
+    structure entirely. For large arrays the auto size is often smaller than the shard
+    and not a multiple of it, so each dask chunk writes a partial shard that is then
+    overwritten by the next chunk, leaving large regions of zeros in the output.
 
-    The fix compares the full .chunks tuple against the expected uniform layout instead.
+    The fix replaces to_zarr with da.store, which writes each dask chunk directly into
+    its region of the zarr array without any internal rechunking.
+
+    This test uses a conditional normalize_chunks mock that only intercepts the
+    chunks="auto" call made by _write_dask_to_existing_zarr, injecting a sub-shard
+    size that would corrupt data. All other normalize_chunks calls (e.g. from dask
+    internals during rechunk) are forwarded to the real implementation. This lets
+    the test confirm:
+      1. to_zarr with injected sub-shard chunks corrupts the output (the old bug).
+      2. dataset_to_zarr produces correct output under the same mock (the fix).
     """
-    # Simulate the irregular chunk structure produced by xarray.open_mfdataset on a
-    # directory of NetCDF blocks: each block contributes one chunk in z, and the final
-    # block is smaller than the rest.
-    shape = (105, 64, 64)
-    full_data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+    import warnings
+    from unittest.mock import patch
 
-    # Build a dask array with irregular z-chunks (10 x 10 + 1 x 5), matching what
-    # open_mfdataset produces from split NetCDF files.
-    irregular_z_chunks = (10,) * 10 + (5,)
-    data = da.from_array(full_data, chunks=(irregular_z_chunks, (64,), (64,)))
-    assert data.chunks[0] == irregular_z_chunks  # confirm irregular
+    import zarr
+    from dask.array.core import normalize_chunks as real_normalize_chunks
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    shape = (100, 64, 64)
+    dtype = np.dtype("uint16")
+    full_data = np.arange(np.prod(shape), dtype=dtype).reshape(shape)
+
+    # Shard = 40 z-slices. We inject dask_write_chunks of 15 z-slices:
+    # 15 < 40 and 15 does not divide 40, so each chunk write lands at a misaligned
+    # offset inside the shard and the un-written remainder stays as zeros.
+    outer_shards = (40, 64, 64)
+    inner_chunks = (5, 64, 64)
+    sub_shard_z = 15
+    injected_chunks = (
+        (sub_shard_z,) * (shape[0] // sub_shard_z) + (shape[0] % sub_shard_z,),
+        (shape[1],),
+        (shape[2],),
     )
 
+    # Only intercept the specific chunks="auto" call made by _write_dask_to_existing_zarr.
+    # All other normalize_chunks calls (used by dask internals such as rechunk) are
+    # forwarded to the real implementation so dask's graph construction is not broken.
+    def normalize_chunks_side_effect(chunks, *args, **kwargs):
+        if chunks == "auto":
+            return injected_chunks
+        return real_normalize_chunks(chunks, *args, **kwargs)
+
+    data = da.from_array(full_data, chunks=outer_shards)
+
     with tempfile.TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "irregular_chunks.zarr"
+        # ---- part 1: confirm to_zarr corrupts data with injected sub-shard chunks ----
+        old_path = Path(tmpdir) / "old.zarr"
+        root = zarr.open_group(str(old_path), mode="w", zarr_format=3)
+        arr = root.create_array(
+            "0",
+            shape=shape,
+            chunks=inner_chunks,
+            shards=outer_shards,
+            dtype=dtype,
+        )
+        with warnings.catch_warnings(record=True):
+            warnings.simplefilter("always")
+            with patch(
+                "dask.array.core.normalize_chunks",
+                side_effect=normalize_chunks_side_effect,
+            ):
+                data.to_zarr(arr, compute=True)
+        old_result = arr[:]
+        assert not np.array_equal(old_result, full_data), (
+            "Expected to_zarr to corrupt data with injected sub-shard chunks, "
+            "but it did not — the regression test is no longer exercising the bug"
+        )
 
-        anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path)
-
-        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        # ---- part 2: confirm dataset_to_zarr produces correct output under the same mock ----
+        # If the writer regresses to to_zarr, the injected sub-shard chunks will corrupt
+        # the output and the data equality assertion will fail.
+        sub_shard_dataset = anu_ctlab_io.Dataset(
+            data=da.from_array(full_data, chunks=(sub_shard_z, shape[1], shape[2])),
+            dimension_names=("z", "y", "x"),
+            voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+            voxel_size=(0.05, 0.05, 0.05),
+            datatype=anu_ctlab_io.DataType.TOMO,
+        )
+        new_path = Path(tmpdir) / "new.zarr"
+        with patch(
+            "dask.array.core.normalize_chunks",
+            side_effect=normalize_chunks_side_effect,
+        ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                sub_shard_dataset,
+                new_path,
+                chunks=inner_chunks,
+                shards=outer_shards,
+            )
+        read_dataset = anu_ctlab_io.Dataset.from_path(new_path)
         result = read_dataset.data.compute()
 
         assert result.shape == shape
         assert np.array_equal(result, full_data), (
+<<<<<<< Updated upstream
             "Output contains incorrect values (possibly zeros) due to misaligned chunks"
+=======
+            "Output contains incorrect values (possibly zeros) due to misaligned chunk writes"
+>>>>>>> Stashed changes
         )
 
 
