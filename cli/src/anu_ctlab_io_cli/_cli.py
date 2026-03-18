@@ -22,6 +22,13 @@ class OutputStorageFormat(str, Enum):
     raw = "raw"
 
 
+class Scheduler(str, Enum):
+    threads = "threads"
+    processes = "processes"
+    distributed = "distributed"
+    distributed_mpi = "distributed-mpi"
+
+
 def cli(
     input: Annotated[Path, typer.Argument(help="Input file path.")],
     output: Annotated[Path, typer.Argument(help="Output file path.")],
@@ -38,34 +45,40 @@ def cli(
             help="Output format (default: auto-detect from extension).",
         ),
     ] = OutputStorageFormat.auto,
-    mpi: Annotated[
-        bool,
+    scheduler: Annotated[
+        Scheduler,
         typer.Option(
-            "--mpi",
-            help="Run under MPI using dask-mpi (launch with mpiexec). ",
+            "--scheduler",
+            help="Dask scheduler to use.",
         ),
-    ] = False,
+    ] = Scheduler.processes,
 ) -> None:
     """Convert between ANU CTLab array formats."""
-    if mpi:
-        from dask_mpi import initialize
+    match scheduler:
+        case Scheduler.distributed_mpi | Scheduler.distributed:
+            if scheduler == Scheduler.distributed_mpi:
+                from dask_mpi import initialize
 
-        initialize()  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
+                initialize()  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
 
-        from dask.distributed import Client, progress
+            from dask.distributed import Client, progress
 
-        with Client():
-            result = _convert(input, output, input_format, output_format)
-            if result is not None:
-                progress(result)
-                result.compute()
-    else:
-        from dask.diagnostics import ProgressBar
+            with Client():
+                result = _convert(input, output, input_format, output_format)
+                if result is not None:
+                    progress(result)
+                    result.compute()
+            if scheduler == Scheduler.distributed_mpi:
+                import os
 
-        with ProgressBar():
-            result = _convert(input, output, input_format, output_format)
-            if result is not None:
-                result.compute()
+                os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
+        case Scheduler.threads | Scheduler.processes:
+            from dask.diagnostics import ProgressBar
+
+            with ProgressBar():
+                result = _convert(input, output, input_format, output_format)
+                if result is not None:
+                    result.compute(scheduler=scheduler.value)
 
 
 def _convert(
