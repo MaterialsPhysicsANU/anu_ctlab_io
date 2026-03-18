@@ -327,7 +327,7 @@ def _write_ome_zarr_group(
     if data_array.chunks != _expected_uniform_chunks(data_array.shape, outer_shards):
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
 
 
 def _write_zarr_array(
@@ -375,4 +375,4 @@ def _write_zarr_array(
     if data_array.chunks != _expected_uniform_chunks(data_array.shape, outer_shards):
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
