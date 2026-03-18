@@ -39,17 +39,20 @@ def cli(
     ] = OutputStorageFormat.auto,
 ) -> None:
     """Convert between ANU CTLab array formats."""
+    from dask.diagnostics import ProgressBar
+
     from anu_ctlab_io import Dataset
 
-    dataset = Dataset.from_path(input, filetype=input_format.value)
-    try:
-        dataset.to_path(output, filetype=output_format.value)
-    except ValueError as err:
-        raise typer.BadParameter(
-            f"cannot infer output format from '{output.name}'. "
-            "Specify one of: NetCDF, zarr, raw.",
-            param_hint="--output-format",
-        ) from err
+    with ProgressBar():
+        dataset = Dataset.from_path(input, filetype=input_format.value)
+        try:
+            dataset.to_path(output, filetype=output_format.value)
+        except ValueError as err:
+            raise typer.BadParameter(
+                f"cannot infer output format from '{output.name}'. "
+                "Specify one of: NetCDF, zarr, raw.",
+                param_hint="--output-format",
+            ) from err
 
 
 def main() -> None:
