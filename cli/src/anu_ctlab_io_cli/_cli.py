@@ -81,6 +81,28 @@ def cli(
                     result.compute(scheduler=scheduler.value)
 
 
+def _fmt_bytes(n: float) -> str:
+    for unit in ("B", "KiB", "MiB", "GiB"):
+        if n < 1024:
+            return f"{n:.1f} {unit}"
+        n /= 1024
+    return f"{n:.1f} TiB"
+
+
+def _print_dataset_info(dataset) -> None:
+    data = dataset.data
+    z, y, x = data.shape
+    cz, cy, cx = data.chunksize
+    chunk_bytes = cz * cy * cx * data.dtype.itemsize
+    vz, vy, vx = dataset.voxel_size
+    print(f"  shape:      ({z}, {y}, {x})")
+    print(f"  dtype:      {data.dtype}")
+    print(f"  size:       {_fmt_bytes(data.nbytes)}")
+    print(f"  chunks:     ({cz}, {cy}, {cx})  —  {_fmt_bytes(chunk_bytes)} each")
+    print(f"  num chunks: {data.npartitions}")
+    print(f"  voxel size: ({vz}, {vy}, {vx}) {dataset.voxel_unit}")
+
+
 def _convert(
     input: Path,
     output: Path,
@@ -90,6 +112,9 @@ def _convert(
     from anu_ctlab_io import Dataset
 
     dataset = Dataset.from_path(input, filetype=input_format.value)
+    print(f"Input: {input}")
+    _print_dataset_info(dataset)
+    print(f"Output: {output}")
     try:
         return dataset.to_path(output, filetype=output_format.value, compute=False)
     except ValueError as err:
