@@ -8,6 +8,14 @@ from dask.delayed import Delayed
 from anu_ctlab_io._dataset import Dataset
 
 
+class _FlushingMemmap(np.memmap):
+    """A memmap subclass that flushes to disk after each write."""
+
+    def __setitem__(self, index: Any, value: Any) -> None:
+        super().__setitem__(index, value)
+        self.flush()
+
+
 def dataset_to_raw(
     dataset: Dataset,
     path: Path,
@@ -27,6 +35,6 @@ def dataset_to_raw(
     """
     data: da.Array = dataset.data.rechunk({1: -1, 2: -1})  # type: ignore[no-untyped-call]
     le_dtype = data.dtype.newbyteorder("<")
-    mmap = np.memmap(path, dtype=le_dtype, mode="w+", shape=data.shape)
+    mmap = _FlushingMemmap(path, dtype=le_dtype, mode="w+", shape=data.shape)
     result: Delayed | None = da.store(data, mmap, lock=False, compute=compute)
     return result
