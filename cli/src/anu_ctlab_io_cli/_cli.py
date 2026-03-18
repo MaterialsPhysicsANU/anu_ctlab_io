@@ -39,14 +39,20 @@ def cli(
     ] = OutputStorageFormat.auto,
 ) -> None:
     """Convert between ANU CTLab array formats."""
-    from dask.diagnostics import ProgressBar
+    from dask.distributed import Client, progress
 
     from anu_ctlab_io import Dataset
 
-    with ProgressBar():
+    with Client():
         dataset = Dataset.from_path(input, filetype=input_format.value)
         try:
-            dataset.to_path(output, filetype=output_format.value)
+            output = dataset.to_path(
+                output, filetype=output_format.value, compute=False
+            )
+            if output is not None:
+                output = output.persist()
+                progress(output)
+                output.compute()  # wait until all data has been written to disk
         except ValueError as err:
             raise typer.BadParameter(
                 f"cannot infer output format from '{output.name}'. "

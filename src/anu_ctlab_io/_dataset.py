@@ -215,8 +215,7 @@ class Dataset(AbstractDataset):
                 return
             case "raw":
                 raw_mod = import_module("anu_ctlab_io.raw")
-                raw_mod.dataset_to_raw(self, path)
-                return
+                return raw_mod.dataset_to_raw(self, path, **kwargs)  # type: ignore[no-any-return]
             case "auto":
                 # Check for explicit extensions
                 if path.name.endswith(".nc") or path.name.endswith("_nc"):
