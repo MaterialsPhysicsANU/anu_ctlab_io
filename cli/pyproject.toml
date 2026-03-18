@@ -32,6 +32,9 @@ Issues = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/issues"
 # Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/blob/main/CHANGELOG.md"
 # Documentation = "https://anu-ctlab-io.readthedocs.io"
 
+[tool.uv]
+compile-bytecode = true
+
 [tool.uv.sources]
 anu-ctlab-io = { workspace = true }
 
