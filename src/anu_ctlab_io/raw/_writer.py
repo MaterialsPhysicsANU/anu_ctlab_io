@@ -26,13 +26,9 @@ class _RawFileStore:
 
     def __setitem__(self, region: tuple[slice, ...], chunk: np.ndarray) -> None:
         chunk = chunk.astype(self._le_dtype, copy=False)
-        z_slice, y_slice, x_slice = region
-        _, ny, nx = self._shape
-        if y_slice != slice(0, ny) or x_slice != slice(0, nx):
-            raise ValueError(f"chunks must span full Y and X dimensions, got {region}")
         mm = np.memmap(self._path, dtype=self._le_dtype, mode="r+", shape=self._shape)
         try:
-            mm[z_slice, y_slice, x_slice] = chunk
+            mm[region] = chunk
             mm.flush()
         finally:
             del mm
@@ -56,7 +52,7 @@ def dataset_to_raw(
     :param dataset: The :any:`Dataset` to write.
     :param path: The path to write the raw binary file to.
     """
-    data: da.Array = dataset.data.rechunk({1: -1, 2: -1})  # type: ignore[no-untyped-call]
+    data: da.Array = dataset.data
     le_dtype = data.dtype.newbyteorder("<")
 
     total_bytes = int(np.prod(data.shape)) * le_dtype.itemsize
