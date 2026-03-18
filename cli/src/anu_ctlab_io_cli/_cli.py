@@ -95,12 +95,15 @@ def _print_dataset_info(dataset) -> None:
     cz, cy, cx = data.chunksize
     chunk_bytes = cz * cy * cx * data.dtype.itemsize
     vz, vy, vx = dataset.voxel_size
-    print(f"  shape:      ({z}, {y}, {x})")
-    print(f"  dtype:      {data.dtype}")
-    print(f"  size:       {_fmt_bytes(data.nbytes)}")
-    print(f"  chunks:     ({cz}, {cy}, {cx})  —  {_fmt_bytes(chunk_bytes)} each")
-    print(f"  num chunks: {data.npartitions}")
-    print(f"  voxel size: ({vz}, {vy}, {vx}) {dataset.voxel_unit}")
+    print(f"  shape:      ({z}, {y}, {x})", flush=True)
+    print(f"  dtype:      {data.dtype}", flush=True)
+    print(f"  size:       {_fmt_bytes(data.nbytes)}", flush=True)
+    print(
+        f"  chunks:     ({cz}, {cy}, {cx})  —  {_fmt_bytes(chunk_bytes)} each",
+        flush=True,
+    )
+    print(f"  num chunks: {data.npartitions}", flush=True)
+    print(f"  voxel size: ({vz}, {vy}, {vx}) {dataset.voxel_unit}", flush=True)
 
 
 def _convert(
@@ -112,9 +115,9 @@ def _convert(
     from anu_ctlab_io import Dataset
 
     dataset = Dataset.from_path(input, filetype=input_format.value)
-    print(f"Input: {input}")
+    print(f"Input: {input}", flush=True)
     _print_dataset_info(dataset)
-    print(f"Output: {output}")
+    print(f"Output: {output}", flush=True)
     try:
         return dataset.to_path(output, filetype=output_format.value, compute=False)
     except ValueError as err:
