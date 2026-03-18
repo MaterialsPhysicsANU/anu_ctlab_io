@@ -71,7 +71,7 @@ def dataset_to_raw(
 
     store = _RawFileStore(path, data.shape, le_dtype)
     writes: Delayed = da.store(data, store, lock=False, compute=False)  # type: ignore[arg-type]
-    result: Delayed = bind(writes, preallocate())
+    result: Delayed = bind(writes, preallocate(), omit=data)
     if compute:
         result.compute()  # type: ignore[no-untyped-call]
         return None
