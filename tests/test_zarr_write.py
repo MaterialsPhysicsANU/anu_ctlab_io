@@ -14,13 +14,6 @@ try:
 except ImportError:
     _HAS_ZARR = False
 
-try:
-    import anu_ctlab_io.netcdf
-
-    _HAS_NETCDF = True
-except ImportError:
-    _HAS_NETCDF = False
-
 import anu_ctlab_io
 
 
@@ -563,7 +556,7 @@ def test_user_shapes_used_without_validation():
 
 @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_irregular_dask_chunks_write_correct_data():
-    """Regression test: dask chunks smaller than the shard must not produce zeros in output.
+    """Regression test: dask chunks smaller than the shard must not produce zeros (corruption) in output.
 
     dask's to_zarr, when writing to an existing zarr.Array, calls normalize_chunks("auto")
     internally and rechunks to that size before writing — ignoring the caller's chunk
