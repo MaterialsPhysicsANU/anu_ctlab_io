@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from typing import Any
 
@@ -13,10 +12,10 @@ from anu_ctlab_io._dataset import Dataset
 class _RawFileStore:
     """Store target for ``dask.array.store`` that writes chunks to a raw binary file.
 
-    Each chunk is written at the correct byte offset via ``os.pwrite``, which is
-    atomic and safe for concurrent writes to non-overlapping regions.
+    Each chunk is written at the correct byte offset via a ``numpy.memmap``, which
+    is safe for concurrent writes to non-overlapping regions.
 
-    The file is opened and closed per ``__setitem__`` call so that the store
+    The memmap is opened and closed per ``__setitem__`` call so that the store
     object can be serialised and used by distributed workers in separate processes.
     """
 
@@ -24,7 +23,6 @@ class _RawFileStore:
         self._path = path
         self._shape = shape
         self._le_dtype = le_dtype
-        self._itemsize = le_dtype.itemsize
 
     def __setitem__(self, region: tuple[slice, ...], chunk: np.ndarray) -> None:
         chunk = chunk.astype(self._le_dtype, copy=False)
@@ -32,13 +30,12 @@ class _RawFileStore:
         _, ny, nx = self._shape
         if y_slice != slice(0, ny) or x_slice != slice(0, nx):
             raise ValueError(f"chunks must span full Y and X dimensions, got {region}")
-        # Chunks span full Y and X, so the entire chunk is contiguous in the file.
-        offset = z_slice.start * ny * nx * self._itemsize
-        fd = os.open(self._path, os.O_WRONLY)
+        mm = np.memmap(self._path, dtype=self._le_dtype, mode="r+", shape=self._shape)
         try:
-            os.pwrite(fd, chunk.tobytes(order="C"), offset)
+            mm[z_slice, y_slice, x_slice] = chunk
+            mm.flush()
         finally:
-            os.close(fd)
+            del mm
 
 
 def dataset_to_raw(
