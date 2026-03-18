@@ -4,7 +4,8 @@ from typing import Any
 
 import dask.array as da
 import numpy as np
-from dask.delayed import Delayed
+from dask.delayed import Delayed, delayed
+from dask.graph_manipulation import bind
 
 from anu_ctlab_io._dataset import Dataset
 
@@ -14,10 +15,13 @@ class _RawFileStore:
 
     Each chunk is written at the correct byte offset via ``os.pwrite``, which is
     atomic and safe for concurrent writes to non-overlapping regions.
+
+    The file is opened and closed per ``__setitem__`` call so that the store
+    object can be serialised and used by distributed workers in separate processes.
     """
 
-    def __init__(self, fd: int, shape: tuple[int, ...], le_dtype: np.dtype) -> None:
-        self._fd = fd
+    def __init__(self, path: Path, shape: tuple[int, ...], le_dtype: np.dtype) -> None:
+        self._path = path
         self._shape = shape
         self._le_dtype = le_dtype
         self._itemsize = le_dtype.itemsize
@@ -30,7 +34,11 @@ class _RawFileStore:
             raise ValueError(f"chunks must span full Y and X dimensions, got {region}")
         # Chunks span full Y and X, so the entire chunk is contiguous in the file.
         offset = z_slice.start * ny * nx * self._itemsize
-        os.pwrite(self._fd, chunk.tobytes(order="C"), offset)
+        fd = os.open(self._path, os.O_WRONLY)
+        try:
+            os.pwrite(fd, chunk.tobytes(order="C"), offset)
+        finally:
+            os.close(fd)
 
 
 def dataset_to_raw(
@@ -54,15 +62,17 @@ def dataset_to_raw(
     data: da.Array = dataset.data.rechunk({1: -1, 2: -1})  # type: ignore[no-untyped-call]
     le_dtype = data.dtype.newbyteorder("<")
 
-    # Pre-allocate
     total_bytes = int(np.prod(data.shape)) * le_dtype.itemsize
-    with path.open("wb") as f:
-        f.truncate(total_bytes)
 
-    fd = os.open(path, os.O_WRONLY)
-    try:
-        store = _RawFileStore(fd, data.shape, le_dtype)
-        output: Delayed | None = da.store(data, store, lock=False, compute=compute)  # type: ignore[arg-type]
-        return output
-    finally:
-        os.close(fd)
+    @delayed  # type: ignore[misc]
+    def preallocate() -> None:
+        with path.open("wb") as f:
+            f.truncate(total_bytes)
+
+    store = _RawFileStore(path, data.shape, le_dtype)
+    writes: Delayed = da.store(data, store, lock=False, compute=False)  # type: ignore[arg-type]
+    result: Delayed = bind(writes, preallocate())
+    if compute:
+        result.compute()  # type: ignore[no-untyped-call]
+        return None
+    return result
