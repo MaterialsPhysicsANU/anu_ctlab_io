@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import Any
 
 import dask.array as da
 import numpy as np
@@ -8,7 +9,10 @@ from anu_ctlab_io._dataset import Dataset
 
 
 def dataset_to_raw(
-    dataset: Dataset, path: Path, compute: bool = True
+    dataset: Dataset,
+    path: Path,
+    compute: bool = True,
+    **kwargs: Any,
 ) -> Delayed | None:
     """Write dataset data to a headerless raw binary file.
 
