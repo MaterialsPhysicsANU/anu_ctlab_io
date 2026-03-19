@@ -62,13 +62,14 @@ def cli(
 
                 initialize()  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
 
-            from dask.distributed import Client, progress
+            from dask.distributed import Client, progress, wait
 
-            with Client():
+            with Client() as client:
                 result = _convert(input, output, input_format, output_format)
                 if result is not None:
-                    progress(result)
-                    result.compute()
+                    future = client.compute(result)
+                    progress(future)
+                    wait(future)
             if scheduler == Scheduler.distributed_mpi:
                 import os
 
