@@ -6,6 +6,7 @@ from typing import Annotated
 
 import typer
 from dask.delayed import Delayed
+from dask.distributed import print
 
 
 # TODO: Make part of the library
