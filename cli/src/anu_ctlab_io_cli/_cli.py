@@ -26,6 +26,7 @@ class OutputStorageFormat(str, Enum):
 
 
 class Scheduler(str, Enum):
+    synchronous = "synchronous"
     threads = "threads"
     processes = "processes"
     distributed = "distributed"
@@ -84,7 +85,7 @@ def cli(
                 import os
 
                 os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
-        case Scheduler.threads | Scheduler.processes:
+        case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
             from dask.diagnostics import ProgressBar
 
             with ProgressBar():
