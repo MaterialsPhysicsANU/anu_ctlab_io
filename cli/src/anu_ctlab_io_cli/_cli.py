@@ -1,12 +1,14 @@
 """CLI entry point for anu-ctlab-io-convert."""
 
+import logging
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
 
 import typer
 from dask.delayed import Delayed
-from dask.distributed import print
+
+logger = logging.getLogger(__name__)
 
 
 # TODO: Make part of the library
@@ -53,8 +55,16 @@ def cli(
             help="Dask scheduler to use.",
         ),
     ] = Scheduler.threads,
+    log_level: Annotated[
+        str,
+        typer.Option(
+            "--log-level",
+            help="Logging level (DEBUG, INFO, WARNING, ERROR).",
+        ),
+    ] = "INFO",
 ) -> None:
     """Convert between ANU CTLab array formats."""
+    logging.getLogger().setLevel(log_level.upper())
     match scheduler:
         case Scheduler.distributed_mpi | Scheduler.distributed:
             if scheduler == Scheduler.distributed_mpi:
@@ -97,12 +107,14 @@ def _print_dataset_info(dataset) -> None:
     cz, cy, cx = data.chunksize
     chunk_bytes = cz * cy * cx * data.dtype.itemsize
     vz, vy, vx = dataset.voxel_size
-    print(f"  shape:      ({z}, {y}, {x})")
-    print(f"  dtype:      {data.dtype}")
-    print(f"  size:       {_fmt_bytes(data.nbytes)}")
-    print(f"  chunks:     ({cz}, {cy}, {cx})  —  {_fmt_bytes(chunk_bytes)} each")
-    print(f"  num chunks: {data.npartitions}")
-    print(f"  voxel size: ({vz}, {vy}, {vx}) {dataset.voxel_unit}")
+    logger.info("  shape:      (%s, %s, %s)", z, y, x)
+    logger.info("  dtype:      %s", data.dtype)
+    logger.info("  size:       %s", _fmt_bytes(data.nbytes))
+    logger.info(
+        "  chunks:     (%s, %s, %s)  —  %s each", cz, cy, cx, _fmt_bytes(chunk_bytes)
+    )
+    logger.info("  num chunks: %s", data.npartitions)
+    logger.info("  voxel size: (%s, %s, %s) %s", vz, vy, vx, dataset.voxel_unit)
 
 
 def _convert(
@@ -114,9 +126,9 @@ def _convert(
     from anu_ctlab_io import Dataset
 
     dataset = Dataset.from_path(input, filetype=input_format.value)
-    print(f"Input: {input}")
+    logger.info("Input: %s", input)
     _print_dataset_info(dataset)
-    print(f"Output: {output}")
+    logger.info("Output: %s", output)
     try:
         return dataset.to_path(output, filetype=output_format.value, compute=False)
     except ValueError as err:
@@ -128,4 +140,5 @@ def _convert(
 
 
 def main() -> None:
+    logging.basicConfig(level=logging.WARNING, format="%(message)s")
     typer.run(cli)
