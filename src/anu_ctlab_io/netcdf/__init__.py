@@ -70,14 +70,14 @@ def _dataset_from_h5py_dir(
 ) -> Dataset:
     """Fast path: read a multi-file NetCDF directory using h5py directly.
 
-    Only reads the HDF5 header of each file to discover z-sizes; actual data
-    is deferred into per-file dask delayed tasks.
+    Only opens the first file. Remaining z-sizes are inferred from zdim_total
+    (stored in attrs) and first_z: all full blocks share first_z, and the last
+    block holds the remainder. Each slab checks its actual z-size at load time.
     """
     import h5py  # type: ignore[import-not-found]
 
     var_name = str(datatype)
 
-    # Metadata from the first file only; capture its z-size while the file is open
     with h5py.File(files[0], "r") as f:
         var = f[var_name]
         storage_dtype = var.dtype
@@ -85,16 +85,25 @@ def _dataset_from_h5py_dir(
         raw_attrs = dict(f.attrs)
         first_z = int(var.shape[0])
 
-    z_sizes = [first_z] + [_h5_z_size(fp, var_name) for fp in files[1:]]
+    # Infer z-sizes without opening remaining files.
+    # zdim_total is written to every block by the writer; last block may be smaller.
+    n = len(files)
+    zdim_total = int(np.asarray(raw_attrs.get("zdim_total", first_z * n)).item())
+    last_z = zdim_total - (n - 1) * first_z
+    z_sizes = [first_z] * (n - 1) + [last_z]
 
-    # Build one dask slab per file; data is not read until compute()
-    def _read_slab(fpath: str) -> np.ndarray:
+    def _read_slab(fpath: str, expected_shape: tuple[int, ...]) -> np.ndarray:
         with h5py.File(fpath, "r") as f:
-            return f[var_name][:]  # type: ignore[no-any-return]
+            data = f[var_name][:]
+        if data.shape != expected_shape:
+            raise RuntimeError(
+                f"{fpath}: expected shape {expected_shape}, got {data.shape}"
+            )
+        return data  # type: ignore[no-any-return]
 
     slabs = [
         da.from_delayed(  # type: ignore[no-untyped-call]
-            dask.delayed(_read_slab)(fp),  # type: ignore[attr-defined]
+            dask.delayed(_read_slab)(fp, (z_sz, *yx_shape)),  # type: ignore[attr-defined]
             shape=(z_sz, *yx_shape),
             dtype=storage_dtype,
         )
