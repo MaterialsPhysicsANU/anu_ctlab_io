@@ -135,5 +135,5 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
 def _read_engines() -> list[str]:
     engines = ["h5netcdf"]
     if importlib.util.find_spec("netCDF4") is not None:
-        engines.append("netCDF4")
+        engines.append("netcdf4")
     return engines
