@@ -52,7 +52,7 @@ def cli(
             "--scheduler",
             help="Dask scheduler to use.",
         ),
-    ] = Scheduler.processes,
+    ] = Scheduler.threads,
 ) -> None:
     """Convert between ANU CTLab array formats."""
     match scheduler:
