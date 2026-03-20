@@ -22,7 +22,7 @@ jobs:
       - name: install uv
         uses: astral-sh/setup-uv@v6
         with:
-          version: "0.8.17"
+          version: "0.10.10"
           enable-cache: true
       - name: run tests
         run: uvx --with tox-uv tox
