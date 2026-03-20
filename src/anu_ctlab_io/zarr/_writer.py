@@ -1,6 +1,5 @@
 """Write data to the ANU CTLab zarr data format."""
 
-import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -9,7 +8,6 @@ from typing import Any
 import dask.array as da
 import numpy as np
 import zarr
-from dask.array.core import PerformanceWarning
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
@@ -233,6 +231,23 @@ def _build_mango_attrs(
     return mango_attrs
 
 
+def _expected_uniform_chunks(
+    shape: tuple[int, ...], shard_shape: tuple[int, ...]
+) -> tuple[tuple[int, ...], ...]:
+    """Return the dask chunks tuple that results from uniformly chunking ``shape`` by ``shard_shape``.
+
+    Used to detect whether a rechunk is actually necessary before calling ``to_zarr``.
+    Comparing the full chunks tuple (rather than the scalar ``chunksize``) correctly
+    identifies irregular chunk structures, such as those produced by multi-block NetCDF
+    reads where the final z-block is smaller than the rest.
+    """
+    return tuple(
+        (shard_shape[i],) * (shape[i] // shard_shape[i])
+        + ((shape[i] % shard_shape[i],) if shape[i] % shard_shape[i] else ())
+        for i in range(len(shape))
+    )
+
+
 def _write_ome_zarr_group(
     data_array: da.Array,
     path: Path,
@@ -303,19 +318,16 @@ def _write_ome_zarr_group(
         **create_array_kwargs,
     )
 
-    if data_array.chunksize != outer_shards:
+    # Always rechunk to the shard shape before writing.
+    # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
+    # chunk sizes that are not multiples of the shard shape, causing misaligned writes
+    # that manifest as large regions of zeros in the output. Using da.store directly
+    # bypasses that internal rechunk entirely, writing each dask chunk straight into
+    # its corresponding region in the zarr array.
+    if data_array.chunks != _expected_uniform_chunks(data_array.shape, outer_shards):
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    # Suppress false-positive performance warning from current Dask v2026.1.2
-    # The warning incorrectly triggers when final chunks are at array boundaries.
-    # Fixed in: https://github.com/dask/dask/pull/12262
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"The input Dask array .*rechunked along axis.*",
-            category=PerformanceWarning,
-        )
-        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
 
 
 def _write_zarr_array(
@@ -358,16 +370,9 @@ def _write_zarr_array(
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    if data_array.chunksize != outer_shards:
+    # Always rechunk to the shard shape before writing.
+    # See comment in _write_ome_zarr_group for explanation.
+    if data_array.chunks != _expected_uniform_chunks(data_array.shape, outer_shards):
         data_array = data_array.rechunk(outer_shards)  # type: ignore[no-untyped-call]
 
-    # Suppress false-positive performance warning from current Dask v2026.1.2
-    # The warning incorrectly triggers when final chunks are at array boundaries.
-    # Fixed in: https://github.com/dask/dask/pull/12262
-    with warnings.catch_warnings():
-        warnings.filterwarnings(
-            "ignore",
-            message=r"The input Dask array .*rechunked along axis.*",
-            category=PerformanceWarning,
-        )
-        data_array.to_zarr(array, compute=True)  # type: ignore[no-untyped-call]
+    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
