@@ -31,7 +31,7 @@ mpi = [
 ]
 
 [project.scripts]
-anu-ctlab-io-cli = "anu_ctlab_io_cli._cli:main"
+anu-ctlab-io = "anu_ctlab_io_cli._cli:main"
 
 [project.urls]
 Repository = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io"
