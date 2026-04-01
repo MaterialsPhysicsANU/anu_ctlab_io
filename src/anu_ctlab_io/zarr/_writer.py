@@ -231,23 +231,6 @@ def _build_mango_attrs(
     return mango_attrs
 
 
-def _expected_uniform_chunks(
-    shape: tuple[int, ...], shard_shape: tuple[int, ...]
-) -> tuple[tuple[int, ...], ...]:
-    """Return the dask chunks tuple that results from uniformly chunking ``shape`` by ``shard_shape``.
-
-    Used to detect whether a rechunk is actually necessary before calling ``to_zarr``.
-    Comparing the full chunks tuple (rather than the scalar ``chunksize``) correctly
-    identifies irregular chunk structures, such as those produced by multi-block NetCDF
-    reads where the final z-block is smaller than the rest.
-    """
-    return tuple(
-        (shard_shape[i],) * (shape[i] // shard_shape[i])
-        + ((shape[i] % shard_shape[i],) if shape[i] % shard_shape[i] else ())
-        for i in range(len(shape))
-    )
-
-
 def _write_ome_zarr_group(
     data_array: da.Array,
     path: Path,
