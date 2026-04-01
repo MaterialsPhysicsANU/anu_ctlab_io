@@ -301,7 +301,7 @@ def _write_ome_zarr_group(
         **create_array_kwargs,
     )
 
-    write_shape = array.shards if array.shards else array.chunks
+    write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
     da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
@@ -347,7 +347,7 @@ def _write_zarr_array(
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    write_shape = array.shards if array.shards else array.chunks
+    write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
     da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
