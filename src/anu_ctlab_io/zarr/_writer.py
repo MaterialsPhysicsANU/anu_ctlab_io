@@ -301,15 +301,19 @@ def _write_ome_zarr_group(
         **create_array_kwargs,
     )
 
-    # Always rechunk to the shard shape before writing.
+    # Always rechunk to the write granularity of the Zarr array before writing.
+    # If using sharding, the write granularity is the shard shape (`.shards`).
+    # If not using sharding, `.shards` is None and `chunks` is used as the write granularity.
+    # Note that the rechunk is lazy if the array is already in the desired chunk shape.
+    # The straddling chunks/shards w.r.t the array shape need no special handling.
+    write_shape = array.shards or array.chunks
+    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+
     # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
     # chunk sizes that are not multiples of the shard shape, causing misaligned writes
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    write_shape = array.shards or array.chunks
-    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
-
     da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
 
 
@@ -353,7 +357,7 @@ def _write_zarr_array(
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
 
-    # Always rechunk to the shard shape before writing.
+    # Always rechunk to the write granularity of the Zarr array before writing.
     # See comment in _write_ome_zarr_group for explanation.
     write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
