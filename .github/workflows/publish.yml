@@ -15,7 +15,7 @@ jobs:
         with:
           version: "0.10.10"
       - name: Build source distribution
-        run: uv build
+        run: uv build --package anu-ctlab-io
       - uses: actions/upload-artifact@v4
         with:
           name: pypi-files-sdist
