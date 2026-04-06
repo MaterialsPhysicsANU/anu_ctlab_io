@@ -6,9 +6,12 @@ from pathlib import Path
 from typing import Annotated
 
 import typer
+import zarr
 from dask.delayed import Delayed
 
 logger = logging.getLogger(__name__)
+
+zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 
 
 # TODO: Make part of the library
