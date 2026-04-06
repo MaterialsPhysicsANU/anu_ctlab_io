@@ -69,7 +69,14 @@ def cli(
     match scheduler:
         case Scheduler.distributed_mpi | Scheduler.distributed:
             if scheduler == Scheduler.distributed_mpi:
-                from dask_mpi import initialize
+                try:
+                    from dask_mpi import initialize
+                except ImportError as e:
+                    raise typer.BadParameter(
+                        "dask-mpi is not installed. "
+                        "Re-install with MPI support: pip install anu-ctlab-io-cli[mpi]",
+                        param_hint="--scheduler",
+                    ) from e
 
                 initialize()  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
 
