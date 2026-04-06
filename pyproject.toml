@@ -70,7 +70,7 @@ docs = [
 ]
 
 [tool.uv.workspace]
-members = ["cli"]
+members = [".", "cli"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
