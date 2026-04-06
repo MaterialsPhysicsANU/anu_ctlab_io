@@ -2,7 +2,7 @@
 
 Command-line tool for converting between [ANU CTLab](https://anu-ctlab-io.readthedocs.io) array storage formats (NetCDF, Zarr, Raw).
 
-> ![NOTE]
+> [!NOTE]
 > Future versions will expose more control over output formats, e.g. chunking and compression options for Zarr.
 
 ## Installation
