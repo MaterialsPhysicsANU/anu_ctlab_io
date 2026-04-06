@@ -1,4 +1,4 @@
-"""CLI entry point for anu-ctlab-io-convert."""
+"""CLI entry point for anu-ctlab-io."""
 
 import logging
 from enum import Enum
