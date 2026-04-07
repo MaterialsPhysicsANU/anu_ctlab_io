@@ -6,6 +6,9 @@ anu_ctlab_io package
 .. image:: https://img.shields.io/pypi/v/anu_ctlab_io
    :alt: PyPI release version
    :target: https://pypi.org/project/anu-ctlab-io/
+.. image:: https://img.shields.io/pypi/v/anu-ctlab-io-cli?label=pypi%20%28CLI%29
+   :alt: CLI PyPI release version
+   :target: https://pypi.org/project/anu-ctlab-io-cli/
 .. image:: https://img.shields.io/readthedocs/anu-ctlab-io
    :alt: Read the Docs
    :target: https://anu-ctlab-io.readthedocs.io
@@ -27,6 +30,13 @@ The specific netcdf and zarr loading functionality is contained in extras, so yo
 generally want to install this package as either ``anu_ctlab_io[netcdf]`` or ``anu_ctlab_io[zarr]``
 depending on the format of data you want to read.
 The ``all`` extra enables all supported formats.
+
+CLI
+===
+
+A command-line interface is also available.
+See the `CLI README <https://github.com/MaterialsPhysicsANU/anu_ctlab_io/tree/main/cli>`_
+for usage details, or install from `PyPI <https://pypi.org/project/anu-ctlab-io-cli/>`_.
 
 Examples
 ========

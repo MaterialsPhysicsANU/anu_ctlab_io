@@ -14,7 +14,7 @@ pip install anu-ctlab-io-cli
 ## Usage
 
 ```bash
-anu-ctlab-io-cli <input> <output> [--input-format FORMAT] [--output-format FORMAT]
+anu-ctlab-io <input> <output> [--input-format FORMAT] [--output-format FORMAT]
 ```
 
 The format is auto-detected from the file extension by default.
@@ -23,10 +23,10 @@ The format is auto-detected from the file extension by default.
 
 ```bash
 # NetCDF to Zarr
-anu-ctlab-io-cli tomoHiRes_nc tomoHiRes.zarr
+anu-ctlab-io tomoHiRes_nc tomoHiRes.zarr
 
 # NetCDF to Raw binary
-anu-ctlab-io-cli tomoHiRes_nc tomoHiRes.raw
+anu-ctlab-io tomoHiRes_nc tomoHiRes.raw
 ```
 
 ### Options
