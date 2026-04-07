@@ -6,6 +6,9 @@ anu_ctlab_io package
 .. image:: https://img.shields.io/pypi/v/anu_ctlab_io
    :alt: PyPI release version
    :target: https://pypi.org/project/anu-ctlab-io/
+.. image:: https://img.shields.io/pypi/v/anu-ctlab-io-cli
+   :alt: CLI PyPI release version
+   :target: https://pypi.org/project/anu-ctlab-io-cli/
 .. image:: https://img.shields.io/readthedocs/anu-ctlab-io
    :alt: Read the Docs
    :target: https://anu-ctlab-io.readthedocs.io
