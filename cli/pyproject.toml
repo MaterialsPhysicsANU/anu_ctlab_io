@@ -19,7 +19,7 @@ maintainers = [
     {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
 ]
 dependencies = [
-    "anu-ctlab-io[all]~=1.2.1",
+    "anu-ctlab-io[all]~=1.2.2",
     "typer>=0.24.1",
 ]
 
