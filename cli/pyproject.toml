@@ -1,0 +1,48 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "anu-ctlab-io-cli"
+version = "0.1.0"
+description = "CLI for converting between ANU CTLab array storage formats"
+readme = "README.md"
+requires-python = ">=3.12"
+license = "MIT"
+license-files = ["LICENSE.md"]
+authors = [
+    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
+    {name = "Bogdan Maviichuk", email = "bogdan.maviichuk@anu.edu.au"},
+    {name = "Lachlan Deakin", email = "lachlan.deakin@anu.edu.au"},
+]
+maintainers = [
+    {name = "Owen Dowley", email = "owen.dowley@anu.edu.au"},
+]
+dependencies = [
+    "anu-ctlab-io[all]~=1.2.2",
+    "typer>=0.24.1",
+]
+
+[project.optional-dependencies]
+mpi = [
+    "dask-mpi>=2026.3.0",
+    "dask[distributed]>=2025.2.0",
+]
+
+[project.scripts]
+anu-ctlab-io = "anu_ctlab_io_cli._cli:main"
+
+[project.urls]
+Repository = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io"
+Issues = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/issues"
+# Changelog = "https://github.com/MaterialsPhysicsANU/anu_ctlab_io/blob/main/CHANGELOG.md"
+# Documentation = "https://anu-ctlab-io.readthedocs.io"
+
+[tool.uv]
+compile-bytecode = true
+
+[tool.uv.sources]
+anu-ctlab-io = { workspace = true }
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/anu_ctlab_io_cli"]
