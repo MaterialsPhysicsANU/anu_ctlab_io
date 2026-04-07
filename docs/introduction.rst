@@ -31,6 +31,13 @@ generally want to install this package as either ``anu_ctlab_io[netcdf]`` or ``a
 depending on the format of data you want to read.
 The ``all`` extra enables all supported formats.
 
+CLI
+===
+
+A command-line interface is also available.
+See the `CLI README <https://github.com/MaterialsPhysicsANU/anu_ctlab_io/tree/main/cli>`_
+for usage details, or install from `PyPI <https://pypi.org/project/anu-ctlab-io-cli/>`_.
+
 Examples
 ========
 .. code-block :: python3
