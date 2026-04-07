@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-04-07
+
+### Added
+
+- Add `compute` parameter to `dataset_to_raw()`
+
+### Changed
+
+- Binary writer: add concurrent writing and remove internal rechunking
+
+### Fixed
+
+- Fix data loss (empty subchunks) in Zarr outputs by using `dask.Array.store()` instead of `to_zarr()`
+
 ## [1.2.1] - 2026-03-18
 
 ### Fixed
@@ -132,7 +146,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Support for reading ANU CTLab NetCDF files
 - Support for outputting Xarray data
 
-[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.1...HEAD
+[unreleased]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/MaterialsPhysicsANU/anu_ctlab_io/releases/tag/v1.1.0
