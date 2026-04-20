@@ -50,8 +50,12 @@ def test_zarr_compute_false_concurrent():
         path_lo = Path(tmpdir) / "lo.zarr"
         path_hi = Path(tmpdir) / "hi.zarr"
 
-        task_lo = anu_ctlab_io.zarr.dataset_to_zarr(lo, path_lo, dataset_id="lo", compute=False)
-        task_hi = anu_ctlab_io.zarr.dataset_to_zarr(hi, path_hi, dataset_id="hi", compute=False)
+        task_lo = anu_ctlab_io.zarr.dataset_to_zarr(
+            lo, path_lo, dataset_id="lo", compute=False
+        )
+        task_hi = anu_ctlab_io.zarr.dataset_to_zarr(
+            hi, path_hi, dataset_id="hi", compute=False
+        )
 
         assert task_lo is not None
         assert task_hi is not None
@@ -79,8 +83,12 @@ def test_netcdf_compute_false_concurrent():
         path_lo = Path(tmpdir) / "tomo_lo.nc"
         path_hi = Path(tmpdir) / "tomo_hi.nc"
 
-        task_lo = anu_ctlab_io.netcdf.dataset_to_netcdf(lo, path_lo, dataset_id="lo", compute=False)
-        task_hi = anu_ctlab_io.netcdf.dataset_to_netcdf(hi, path_hi, dataset_id="hi", compute=False)
+        task_lo = anu_ctlab_io.netcdf.dataset_to_netcdf(
+            lo, path_lo, dataset_id="lo", compute=False
+        )
+        task_hi = anu_ctlab_io.netcdf.dataset_to_netcdf(
+            hi, path_hi, dataset_id="hi", compute=False
+        )
 
         assert task_lo is not None
         assert task_hi is not None
