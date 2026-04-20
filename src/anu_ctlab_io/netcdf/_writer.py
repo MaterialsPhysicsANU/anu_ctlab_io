@@ -146,11 +146,12 @@ def _sanitise_attribute_value(value: Any) -> Any:
     """Convert attribute value to an HDF5-compatible type.
 
     Converts arrays and objects with incompatible dtypes to strings.
-    Strings are encoded as ASCII bytes to match reference NetCDF conventions.
+    Strings are encoded as ASCII bytes (with backslash-escape for non-ASCII) to
+    match reference NetCDF conventions.
     """
     match value:
-        # Numeric scalars are safe for HDF5
-        case int() | float() | np.integer() | np.floating():
+        # Numeric scalars, bytes, and booleans are safe for HDF5
+        case int() | float() | np.integer() | np.floating() | bytes() | np.bytes_():
             return value
         # Numpy arrays with HDF5-compatible dtype are safe
         case np.ndarray() if _is_hdf5_compatible_dtype(value.dtype):
@@ -164,8 +165,9 @@ def _sanitise_attribute_value(value: Any) -> Any:
                 pass
 
     # Everything else: encode to string bytes
+    # Use backslashreplace error handler for non-ASCII characters
     str_value = value if isinstance(value, str) else str(value)
-    return np.bytes_(str_value.encode("ascii"))
+    return np.bytes_(str_value.encode("ascii", errors="backslashreplace"))
 
 
 def _set_global_attributes(
