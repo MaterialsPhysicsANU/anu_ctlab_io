@@ -23,7 +23,6 @@ except ImportError:
     _HAS_ZARR = False
 
 import anu_ctlab_io
-import anu_ctlab_io.raw
 
 
 def _make_dataset(data: da.Array) -> anu_ctlab_io.Dataset:
@@ -50,12 +49,8 @@ def test_zarr_compute_false_concurrent():
         path_lo = Path(tmpdir) / "lo.zarr"
         path_hi = Path(tmpdir) / "hi.zarr"
 
-        task_lo = anu_ctlab_io.zarr.dataset_to_zarr(
-            lo, path_lo, dataset_id="lo", compute=False
-        )
-        task_hi = anu_ctlab_io.zarr.dataset_to_zarr(
-            hi, path_hi, dataset_id="hi", compute=False
-        )
+        task_lo = lo.to_path(path_lo, dataset_id="lo", compute=False)
+        task_hi = hi.to_path(path_hi, dataset_id="hi", compute=False)
 
         assert task_lo is not None
         assert task_hi is not None
@@ -83,12 +78,8 @@ def test_netcdf_compute_false_concurrent():
         path_lo = Path(tmpdir) / "tomo_lo.nc"
         path_hi = Path(tmpdir) / "tomo_hi.nc"
 
-        task_lo = anu_ctlab_io.netcdf.dataset_to_netcdf(
-            lo, path_lo, dataset_id="lo", compute=False
-        )
-        task_hi = anu_ctlab_io.netcdf.dataset_to_netcdf(
-            hi, path_hi, dataset_id="hi", compute=False
-        )
+        task_lo = lo.to_path(path_lo, dataset_id="lo", compute=False)
+        task_hi = hi.to_path(path_hi, dataset_id="hi", compute=False)
 
         assert task_lo is not None
         assert task_hi is not None
@@ -117,11 +108,17 @@ def test_netcdf_split_compute_false_concurrent():
         path_lo = Path(tmpdir) / "tomo_lo"
         path_hi = Path(tmpdir) / "tomo_hi"
 
-        task_lo = anu_ctlab_io.netcdf.dataset_to_netcdf(
-            lo, path_lo, dataset_id="lo", max_file_size_mb=0.005, compute=False
+        task_lo = lo.to_path(
+            path_lo,
+            dataset_id="lo",
+            max_file_size_mb=0.005,
+            compute=False,
         )
-        task_hi = anu_ctlab_io.netcdf.dataset_to_netcdf(
-            hi, path_hi, dataset_id="hi", max_file_size_mb=0.005, compute=False
+        task_hi = hi.to_path(
+            path_hi,
+            dataset_id="hi",
+            max_file_size_mb=0.005,
+            compute=False,
         )
 
         assert task_lo is not None
@@ -155,8 +152,8 @@ def test_raw_compute_false_concurrent():
         path_lo = Path(tmpdir) / "lo.raw"
         path_hi = Path(tmpdir) / "hi.raw"
 
-        task_lo = anu_ctlab_io.raw.dataset_to_raw(lo, path_lo, compute=False)
-        task_hi = anu_ctlab_io.raw.dataset_to_raw(hi, path_hi, compute=False)
+        task_lo = lo.to_path(path_lo, compute=False)
+        task_hi = hi.to_path(path_hi, compute=False)
 
         assert task_lo is not None
         assert task_hi is not None
