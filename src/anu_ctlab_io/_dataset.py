@@ -7,6 +7,7 @@ from typing import Any, Self, cast
 
 import dask.array as da
 import numpy as np
+from dask.delayed import Delayed
 
 from anu_ctlab_io._datatype import DataType, StorageDType
 from anu_ctlab_io._parse_history import History, HistoryValue
@@ -22,7 +23,7 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def to_path(self, path: Path, *, filetype: str = "auto", **kwargs: Any) -> None:
+    def to_path(self, path: Path, *, filetype: str = "auto", compute: bool = True, **kwargs: Any) -> Delayed | None:
         pass
 
     @property
@@ -174,8 +175,9 @@ class Dataset(AbstractDataset):
         *,
         filetype: str = "auto",
         dataset_id: str | None = "auto",
+        compute: bool = True,
         **kwargs: Any,
-    ) -> None:
+    ) -> Delayed | None:
         """Writes the :any:`Dataset` to the given ``path``.
 
         The data will be written in one of the ANU mass data storage formats, and the optional extras required for the specific
@@ -189,6 +191,8 @@ class Dataset(AbstractDataset):
             - "auto" (default): Use self.dataset_id if available, otherwise generate new
             - str: Use this exact value
             - None: Generate new (legacy behavior)
+        :param compute: If ``True`` (default), compute immediately. If ``False``, return
+            a :any:`dask.delayed.Delayed` for deferred execution.
         :param kwargs: Additional keyword arguments passed to the format-specific writer.
         """
         if isinstance(path, str):
@@ -207,32 +211,28 @@ class Dataset(AbstractDataset):
         match filetype:
             case "NetCDF":
                 netcdf_mod = self._import_with_extra("anu_ctlab_io.netcdf", "netcdf")
-                netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                return
+                return netcdf_mod.dataset_to_netcdf(self, path, compute=compute, **kwargs)
             case "zarr":
                 zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                zarr_mod.dataset_to_zarr(self, path, **kwargs)
-                return
+                return zarr_mod.dataset_to_zarr(self, path, compute=compute, **kwargs)
             case "raw":
                 raw_mod = import_module("anu_ctlab_io.raw")
-                return raw_mod.dataset_to_raw(self, path, **kwargs)  # type: ignore[no-any-return]
+                return raw_mod.dataset_to_raw(self, path, compute=compute, **kwargs)  # type: ignore[no-any-return]
             case "auto":
                 # Check for explicit extensions
                 if path.name.endswith(".nc") or path.name.endswith("_nc"):
                     netcdf_mod = self._import_with_extra(
                         "anu_ctlab_io.netcdf", "netcdf"
                     )
-                    netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                    return
+                    return netcdf_mod.dataset_to_netcdf(self, path, compute=compute, **kwargs)
 
                 if path.name.endswith(".zarr"):
                     zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                    zarr_mod.dataset_to_zarr(self, path, **kwargs)
-                    return
+                    return zarr_mod.dataset_to_zarr(self, path, compute=compute, **kwargs)
 
                 if path.name.endswith(".raw"):
                     raw_mod = import_module("anu_ctlab_io.raw")
-                    return raw_mod.dataset_to_raw(self, path, **kwargs)  # type: ignore[no-any-return]
+                    return raw_mod.dataset_to_raw(self, path, compute=compute, **kwargs)  # type: ignore[no-any-return]
 
                 # Check if datatype is in filename (Mango convention)
                 if self._datatype is not None:
@@ -241,8 +241,7 @@ class Dataset(AbstractDataset):
                         netcdf_mod = self._import_with_extra(
                             "anu_ctlab_io.netcdf", "netcdf"
                         )
-                        netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                        return
+                        return netcdf_mod.dataset_to_netcdf(self, path, compute=compute, **kwargs)
 
         raise ValueError(
             "Unable to determine output format from given `path`, perhaps specify `filetype`?",
