@@ -9,7 +9,11 @@ extensions = [
     "sphinx_rtd_theme",
     "autoapi.extension",
     "sphinx_autodoc_typehints",
+    "sphinx.ext.intersphinx",
 ]
+intersphinx_mapping = {
+    "dask": ("https://docs.dask.org/en/stable/", None),
+}
 html_theme = "sphinx_rtd_theme"
 source_suffix = {
     ".rst": "restructuredtext",
