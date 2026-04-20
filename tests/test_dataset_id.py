@@ -1,11 +1,12 @@
-"""Tests for dataset_id tracking."""
+"""Tests for dataset_id tracking and save() functionality."""
 
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from anu_ctlab_io import Dataset
+from anu_ctlab_io import Dataset, StorageFormat
+from anu_ctlab_io._dataset import _extract_base_name_from_dataset_id
 
 try:
     import anu_ctlab_io.netcdf
@@ -20,6 +21,40 @@ try:
     _HAS_ZARR = True
 except ImportError:
     _HAS_ZARR = False
+
+
+class TestExtractBaseName:
+    """Tests for the dataset_id timestamp stripping helper."""
+
+    def test_old_format_with_timestamp(self):
+        """Test stripping timestamp from old format dataset_id."""
+        dataset_id = "20250314_012913_tomoLoRes_SS"
+        result = _extract_base_name_from_dataset_id(dataset_id)
+        assert result == "tomoLoRes_SS"
+
+    def test_new_format_no_timestamp(self):
+        """Test new format passes through unchanged."""
+        dataset_id = "0-00000_gb1"
+        result = _extract_base_name_from_dataset_id(dataset_id)
+        assert result == "0-00000_gb1"
+
+    def test_partial_timestamp_pattern(self):
+        """Test that partial patterns don't match."""
+        dataset_id = "20250314_tomoLoRes"  # Only date, no time
+        result = _extract_base_name_from_dataset_id(dataset_id)
+        assert result == "20250314_tomoLoRes"  # No match, return as-is
+
+    def test_timestamp_like_but_not_at_start(self):
+        """Test timestamp pattern in middle doesn't match."""
+        dataset_id = "prefix_20250314_012913_suffix"
+        result = _extract_base_name_from_dataset_id(dataset_id)
+        assert result == "prefix_20250314_012913_suffix"  # No match at start
+
+    def test_multiple_underscores_after_timestamp(self):
+        """Test old format with multiple underscores in basename."""
+        dataset_id = "20250314_012913_tomo_LoRes_SS_v2"
+        result = _extract_base_name_from_dataset_id(dataset_id)
+        assert result == "tomo_LoRes_SS_v2"
 
 
 @pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
@@ -197,3 +232,135 @@ class TestDatasetIdZarr:
 
         ds2 = Dataset.from_path(output_file)
         assert ds2.dataset_id == original_id
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+class TestSaveMethod:
+    """Tests for the save() method with auto-path generation."""
+
+    def test_save_strips_timestamp_from_filename(self, tmp_path):
+        """Test that save() strips timestamp from old format dataset_id."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+
+        # Save with explicit suffix
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
+
+        # Check filename doesn't contain timestamp
+        assert output_path.name == "tomoLoRes_SS_CTLAB_IO.nc"
+        assert "20250314_012913" not in output_path.name
+
+    def test_save_preserves_timestamp_in_metadata(self, tmp_path):
+        """Test that save() preserves timestamp in file metadata."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+        original_id = ds.dataset_id
+
+        # Save and read back
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
+        ds2 = Dataset.from_path(output_path)
+
+        # Metadata should preserve full dataset_id with timestamp
+        assert ds2.dataset_id == original_id
+        assert ds2.dataset_id == "20250314_012913_tomoLoRes_SS"
+
+    def test_save_custom_suffix(self, tmp_path):
+        """Test save() with custom suffix."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+
+        output_path = ds.save(
+            suffix="_processed", format=StorageFormat.NetCDF, directory=tmp_path
+        )
+        assert output_path.name == "tomoLoRes_SS_processed.nc"
+
+    @pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+    def test_save_format_zarr(self, tmp_path):
+        """Test save() with zarr format."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.Zarr, directory=tmp_path
+        )
+        assert output_path.name == "tomoLoRes_SS_CTLAB_IO.zarr"
+        assert output_path.exists()
+
+    def test_save_raises_without_dataset_id(self, tmp_path):
+        """Test that save() raises error when dataset_id is missing."""
+        import dask.array as da
+
+        from anu_ctlab_io._voxel_properties import VoxelUnit
+
+        # Create dataset without dataset_id
+        ds = Dataset(
+            data=da.from_array(np.ones((10, 20, 30), dtype=np.float32)),
+            dimension_names=("z", "y", "x"),
+            voxel_unit=VoxelUnit.MM,
+            voxel_size=(1.0, 1.0, 1.0),
+        )
+
+        with pytest.raises(ValueError, match="Cannot auto-generate filename"):
+            ds.save(suffix="_test", format=StorageFormat.NetCDF, directory=tmp_path)
+
+    def test_save_returns_path(self, tmp_path):
+        """Test that save() returns the Path to the written file."""
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        ds = Dataset.from_path(test_file)
+
+        output_path = ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
+        assert isinstance(output_path, Path)
+        assert output_path.exists()
+
+    def test_save_new_format_dataset_id(self, tmp_path):
+        """Test save() with new format dataset_id (no timestamp)."""
+        # Use a real test file to ensure we can roundtrip
+        test_file = Path(__file__).parent / "data" / "tomoLoRes_SS.nc"
+        if not test_file.exists():
+            pytest.skip("Test file not found")
+
+        # Load a real dataset and replace its dataset_id with new format
+        ds = Dataset.from_path(test_file)
+
+        # Create a new dataset with new format ID (using from_modified to preserve all properties)
+        new_ds = Dataset(
+            data=ds.data,
+            dimension_names=ds.dimension_names,
+            voxel_unit=ds.voxel_unit,
+            voxel_size=ds.voxel_size,
+            dataset_id="0-00000_gb1",  # New format
+            datatype=ds._datatype,
+            history=ds._history,
+        )
+
+        output_path = new_ds.save(
+            suffix="_CTLAB_IO", format=StorageFormat.NetCDF, directory=tmp_path
+        )
+
+        # New format should be used as-is (no timestamp to strip)
+        assert output_path.name == "0-00000_gb1_CTLAB_IO.nc"
+
+        # Can't verify by reading back because filename doesn't have datatype
+        # But we can verify the file was created
+        assert output_path.exists()
