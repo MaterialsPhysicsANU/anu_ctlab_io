@@ -40,6 +40,7 @@ def dataset_to_zarr(
     shards: tuple[int, ...] | None = None,
     create_array_kwargs: dict[str, Any] | None = None,
     compute: bool = True,
+    scheduler: str | None = None,
     **extra_attrs: Any,
 ) -> Delayed | None:
     """Write a :any:`Dataset` to Zarr format.
@@ -68,6 +69,8 @@ def dataset_to_zarr(
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
     :param compute: If ``True`` (default), compute immediately. If ``False``, return
         a :any:`dask.delayed.Delayed` for deferred execution.
+    :param scheduler: Dask scheduler to use for computation (e.g. ``"synchronous"``,
+        ``"threads"``, ``"processes"``). ``None`` uses the dask default.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -137,6 +140,7 @@ def dataset_to_zarr(
             mango_attrs,
             ome_zarr_version,
             compute,
+            scheduler,
         )
     else:
         return _write_zarr_array(
@@ -148,6 +152,7 @@ def dataset_to_zarr(
             create_array_kwargs,
             mango_attrs,
             compute,
+            scheduler,
         )
 
 
@@ -247,6 +252,7 @@ def _write_ome_zarr_group(
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
     compute: bool = True,
+    scheduler: str | None = None,
 ) -> Delayed | None:
     """Write data as an OME-Zarr group with Zarr v3 sharding.
 
@@ -321,7 +327,13 @@ def _write_ome_zarr_group(
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
+    result: Delayed | None = da.store(
+        data_array,
+        array,  # type: ignore[arg-type]
+        lock=False,
+        compute=compute,
+        scheduler=scheduler,
+    )
     return result
 
 
@@ -334,6 +346,7 @@ def _write_zarr_array(
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     compute: bool = True,
+    scheduler: str | None = None,
 ) -> Delayed | None:
     """Write data as a simple Zarr V3 array with mango metadata and sharding.
 
@@ -371,5 +384,11 @@ def _write_zarr_array(
     write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
-    result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
+    result: Delayed | None = da.store(
+        data_array,
+        array,  # type: ignore[arg-type]
+        lock=False,
+        compute=compute,
+        scheduler=scheduler,
+    )
     return result

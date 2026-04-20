@@ -12,6 +12,13 @@ try:
 except ImportError:
     _HAS_NETCDF = False
 
+try:
+    import anu_ctlab_io.zarr  # noqa: F401
+
+    _HAS_ZARR = True
+except ImportError:
+    _HAS_ZARR = False
+
 import anu_ctlab_io
 
 
@@ -199,5 +206,65 @@ def test_to_path_split_with_nc_extension():
 
         # Read it back
         read_dataset = anu_ctlab_io.Dataset.from_path(expected_dir, parse_history=False)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+def test_to_path_with_scheduler_netcdf():
+    """Test Dataset.to_path with scheduler='synchronous' for NetCDF format."""
+    shape = (10, 20, 30)
+    data = da.from_array(
+        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
+    )
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "tomo_scheduler_test.nc"
+
+        dataset.to_path(
+            output_path, dataset_id="test_scheduler_nc", scheduler="synchronous"
+        )
+
+        assert output_path.exists()
+
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path, parse_history=False)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+def test_to_path_with_scheduler_zarr():
+    """Test Dataset.to_path with scheduler='synchronous' for zarr format."""
+    shape = (10, 20, 30)
+    data = da.from_array(
+        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
+    )
+
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.05, 0.05, 0.05),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "tomo_scheduler_test.zarr"
+
+        dataset.to_path(
+            output_path, dataset_id="test_scheduler_zarr", scheduler="synchronous"
+        )
+
+        assert output_path.exists()
+
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path, parse_history=False)
         assert read_dataset.data.shape == shape
         assert np.array_equal(read_dataset.data.compute(), data.compute())

@@ -26,6 +26,7 @@ def dataset_to_netcdf(
     compression_level: int = 0,
     history: History | None = None,
     compute: bool = True,
+    scheduler: str | None = None,
     **extra_attrs: Any,
 ) -> Delayed | None:
     """Write a :any:`Dataset` to netcdf format.
@@ -41,6 +42,8 @@ def dataset_to_netcdf(
         or parsed history dicts. If None, uses dataset's history attribute.
     :param compute: If ``True`` (default), compute immediately. If ``False``, return
         a :any:`dask.delayed.Delayed` for deferred execution.
+    :param scheduler: Dask scheduler to use for computation (e.g. ``"synchronous"``,
+        ``"threads"``, ``"processes"``). ``None`` uses the dask default.
     :param extra_attrs: Additional global attributes to include.
     """
     if isinstance(path, str):
@@ -111,6 +114,7 @@ def dataset_to_netcdf(
                 compression_level,
                 serialized_history,
                 compute,
+                scheduler,
             )
 
     return _write_single_netcdf(
@@ -121,6 +125,7 @@ def dataset_to_netcdf(
         compression_level,
         serialized_history,
         compute,
+        scheduler,
     )
 
 
@@ -203,6 +208,7 @@ def _write_single_netcdf(
     compression_level: int,
     serialized_history: dict[str, str] | None,
     compute: bool = True,
+    scheduler: str | None = None,
 ) -> Delayed | None:
     """Write a single netcdf file."""
     if not str(path).endswith(".nc"):
@@ -223,7 +229,7 @@ def _write_single_netcdf(
         True,
     )
     if compute:
-        task.compute()  # type: ignore[no-untyped-call]
+        dask.compute(task, scheduler=scheduler)  # type: ignore[attr-defined,no-untyped-call]
         return None
     return task
 
@@ -271,6 +277,7 @@ def _write_split_netcdf(
     compression_level: int,
     serialized_history: dict[str, str] | None,
     compute: bool = True,
+    scheduler: str | None = None,
 ) -> Delayed | None:
     """Write split netcdf files into a directory."""
     dir_path = _get_split_directory_path(base_path)
@@ -307,7 +314,7 @@ def _write_split_netcdf(
 
     task: Delayed = dask.delayed(lambda *_: None)(*tasks)  # type: ignore[attr-defined]
     if compute:
-        task.compute()  # type: ignore[no-untyped-call]
+        dask.compute(task, scheduler=scheduler)  # type: ignore[attr-defined,no-untyped-call]
         return None
     return task
 

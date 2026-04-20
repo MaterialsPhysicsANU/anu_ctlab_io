@@ -22,7 +22,13 @@ class AbstractDataset(ABC):
 
     @abstractmethod
     def to_path(
-        self, path: Path, *, filetype: str = "auto", compute: bool = True, **kwargs: Any
+        self,
+        path: Path,
+        *,
+        filetype: str = "auto",
+        compute: bool = True,
+        scheduler: str | None = None,
+        **kwargs: Any,
     ) -> Delayed | None:
         pass
 
@@ -176,6 +182,7 @@ class Dataset(AbstractDataset):
         filetype: str = "auto",
         dataset_id: str | None = "auto",
         compute: bool = True,
+        scheduler: str | None = None,
         **kwargs: Any,
     ) -> Delayed | None:
         """Writes the :any:`Dataset` to the given ``path``.
@@ -193,6 +200,8 @@ class Dataset(AbstractDataset):
             - None: Generate new (legacy behavior)
         :param compute: If ``True`` (default), compute immediately. If ``False``, return
             a :any:`dask.delayed.Delayed` for deferred execution.
+        :param scheduler: Dask scheduler to use for computation (e.g. ``"synchronous"``,
+            ``"threads"``, ``"processes"``). ``None`` uses the dask default.
         :param kwargs: Additional keyword arguments passed to the format-specific writer.
         """
         if isinstance(path, str):
@@ -207,6 +216,8 @@ class Dataset(AbstractDataset):
         # Add resolved dataset_id to kwargs if not already present
         if "dataset_id" not in kwargs:
             kwargs["dataset_id"] = resolved_dataset_id
+
+        kwargs["scheduler"] = scheduler
 
         def _to_netcdf() -> Delayed | None:
             try:

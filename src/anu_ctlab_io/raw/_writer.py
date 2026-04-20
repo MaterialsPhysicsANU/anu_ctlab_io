@@ -38,6 +38,7 @@ def dataset_to_raw(
     dataset: Dataset,
     path: Path,
     compute: bool = True,
+    scheduler: str | None = None,
     **kwargs: Any,
 ) -> Delayed | None:
     """Write dataset data to a headerless raw binary file.
@@ -51,6 +52,8 @@ def dataset_to_raw(
 
     :param dataset: The :any:`Dataset` to write.
     :param path: The path to write the raw binary file to.
+    :param scheduler: Dask scheduler to use for computation (e.g. ``"synchronous"``,
+        ``"threads"``, ``"processes"``). ``None`` uses the dask default.
     """
     data: da.Array = dataset.data
     le_dtype = data.dtype.newbyteorder("<")
@@ -66,6 +69,6 @@ def dataset_to_raw(
     writes: Delayed = da.store(data, store, lock=False, compute=False)  # type: ignore[arg-type]
     result: Delayed = bind(writes, preallocate(), omit=data)
     if compute:
-        result.compute()  # type: ignore[no-untyped-call]
+        result.compute(scheduler=scheduler)  # type: ignore[no-untyped-call]
         return None
     return result
