@@ -130,7 +130,7 @@ docs = [
 
 [[package]]
 name = "anu-ctlab-io-cli"
-version = "0.1.0"
+version = "0.1.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "anu-ctlab-io", extra = ["all"] },
@@ -148,7 +148,7 @@ requires-dist = [
     { name = "anu-ctlab-io", extras = ["all"], editable = "." },
     { name = "dask", extras = ["distributed"], marker = "extra == 'mpi'", specifier = ">=2025.2.0" },
     { name = "dask-mpi", marker = "extra == 'mpi'", specifier = ">=2026.3.0" },
-    { name = "typer" },
+    { name = "typer", specifier = ">=0.24.1" },
 ]
 provides-extras = ["mpi"]
 
