@@ -1,9 +1,10 @@
 """Write data to the ANU CTLab zarr data format."""
 
+import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import dask.array as da
 import numpy as np
@@ -21,8 +22,10 @@ __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
 _DEFAULT_3D_ZARR_CHUNKS = (32, 32, 32)
 _DEFAULT_2D_ZARR_CHUNKS = (1, 256, 256)
-_DEFAULT_CHUNK_SIZE_MB = 10.0
-_DEFAULT_MAX_SHARD_SIZE_MB = 1000.0
+type ChunkSpec = tuple[int, ...] | Literal["auto"]
+type ShardSpec = tuple[int, ...] | Literal["auto"] | None
+type ChunkLayoutSpec = ChunkSpec | Literal["anu"]
+type ShardLayoutSpec = ShardSpec | Literal["anu"]
 
 
 class OMEZarrVersion(Enum):
@@ -40,8 +43,8 @@ def dataset_to_zarr(
     max_shard_size_mb: float | None = None,
     history: History | None = None,
     chunk_size_mb: float | None = None,
-    chunks: tuple[int, ...] | None = None,
-    shards: tuple[int, ...] | None = None,
+    chunks: ChunkLayoutSpec = "anu",
+    shards: ShardLayoutSpec = "anu",
     create_array_kwargs: dict[str, Any] | None = None,
     **extra_attrs: Any,
 ) -> None:
@@ -55,28 +58,26 @@ def dataset_to_zarr(
         Set to :any:`OMEZarrVersion.v05` (default) to write OME-Zarr V0.5 group format.
         Set to ``None`` to write a simple Zarr V3 array with mango metadata.
     :param max_shard_size_mb: Maximum shard size in MB for optional size-based Zarr v3 sharding.
-        Set this, or ``chunk_size_mb``, to opt into size-based layout calculation.
-        If this is set while ``chunk_size_mb`` is ``None``, the chunk size falls back to 10.0 MB.
-        This size-based API is not recommended for new code and may be deprecated in the future.
-        Shards group multiple chunks into indexed files for better filesystem performance.
-        Mutually exclusive with ``chunks`` and ``shards`` parameters.
+        Deprecated and ignored. Passing this emits a warning and leaves layout selection
+        to ``chunks``/``shards``.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
     :param chunk_size_mb: Target chunk size in MB for optional size-based chunk calculation.
-        Set this, or ``max_shard_size_mb``, to opt into size-based layout calculation.
-        If this is set while ``max_shard_size_mb`` is ``None``, the shard size falls back to 1000.0 MB.
-        Otherwise the default layout is fixed at ``chunks=(32, 32, 32)`` with shards
-        spanning the full X/Y domain and Z depth 32.
-        This size-based API is not recommended for new code and may be deprecated in the future.
-        Mutually exclusive with ``chunks`` and ``shards`` parameters.
+        Deprecated and ignored. Passing this emits a warning and leaves layout selection
+        to ``chunks``/``shards``.
     :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
         Can be provided on its own to write a non-sharded Zarr array, or together with
-        ``shards`` to use the sharding codec. Cannot be used with ``chunk_size_mb`` or
-        ``max_shard_size_mb``.
+        ``shards`` to use the sharding codec. ``'auto'`` delegates chunk selection to
+        zarr-python. ``'anu'`` uses the library's default chunk heuristic. To write
+        without sharding, pass ``shards=None`` explicitly.
         A value of ``0`` means "span this axis" - the full array axis for unsharded writes,
         or the full shard axis when ``shards`` is also provided.
     :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
-        Must be provided together with ``chunks``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
+        May be provided together with explicit ``chunks``, with ``chunks='anu'`` to use
+        the library's default chunk heuristic, with ``'auto'`` to delegate shard selection
+        to zarr-python, ``None`` to disable sharding, or ``'anu'`` to use the library's
+        default shard heuristic. Cannot be used with ``0`` sentinels when
+        ``chunks='auto'`` because zarr resolves the sizes itself.
         A value of ``0`` means "span the full array axis".
         When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
@@ -100,13 +101,24 @@ def dataset_to_zarr(
         dataset_id = f"{timestamp}_{datatype}"
 
     data_array = dataset.data
-    storage_dtype = data_array.dtype
+
+    ignored_size_args = ", ".join(
+        name
+        for name, value in (
+            ("chunk_size_mb", chunk_size_mb),
+            ("max_shard_size_mb", max_shard_size_mb),
+        )
+        if value is not None
+    )
+    if ignored_size_args:
+        warnings.warn(
+            f"{ignored_size_args} is ignored when writing Zarr. Use chunks/shards or 'auto' instead.",
+            UserWarning,
+            stacklevel=2,
+        )
 
     inner_chunks, outer_shards = _resolve_zarr_layout(
         shape=data_array.shape,
-        dtype=storage_dtype,
-        chunk_size_mb=chunk_size_mb,
-        max_shard_size_mb=max_shard_size_mb,
         chunks=chunks,
         shards=shards,
     )
@@ -150,67 +162,44 @@ def _round_up_to_multiple(value: int, multiple: int) -> int:
 def _resolve_zarr_layout(
     *,
     shape: tuple[int, ...],
-    dtype: np.dtype[Any],
-    chunk_size_mb: float | None,
-    max_shard_size_mb: float | None,
-    chunks: tuple[int, ...] | None,
-    shards: tuple[int, ...] | None,
-) -> tuple[tuple[int, ...], tuple[int, ...] | None]:
+    chunks: ChunkLayoutSpec,
+    shards: ShardLayoutSpec,
+) -> tuple[ChunkSpec, ShardSpec]:
     """Resolve the final Zarr chunk/shard layout from the supported writer inputs.
 
     The resolution order is:
     - explicit ``chunks``/``shards`` shapes when provided
-    - size-based layout from ``chunk_size_mb`` and/or ``max_shard_size_mb``
-    - the library default layout of ``(32, 32, 32)`` subchunks with X/Y-spanning shards
+    - ``'anu'`` sentinels, which use the library default layout of ``(32, 32, 32)``
+      subchunks with X/Y-spanning shards
       or, for ``z == 1`` data, ``(1, 256, 256)``-style in-plane chunks constrained by the array shape
 
     Explicit shapes also support ``0`` as a sentinel. In ``chunks``, ``0`` means span
     the full array axis for unsharded writes, or the full shard axis when ``shards`` is
     provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
     of the resolved chunk size so the sharding codec remains valid.
-
-    The size-based ``chunk_size_mb`` / ``max_shard_size_mb`` path is kept for backward
-    compatibility, but it is not recommended for new code and may be deprecated in the future.
     """
-    chunks_provided = chunks is not None
-    shards_provided = shards is not None
-    sizes_provided = (chunk_size_mb is not None) or (max_shard_size_mb is not None)
+    anu_chunks, anu_shards = _default_chunks_and_shards(shape)
 
-    if shards_provided and not chunks_provided:
+    if chunks is None:
+        chunks = "anu"
+    if shards == "anu":
+        shards = anu_shards
+    if chunks == "anu":
+        chunks = anu_chunks
+
+    if shards is not None and chunks is None and shards != "auto":
         raise ValueError(
             "shards requires chunks to also be provided. "
             f"Got chunks={chunks}, shards={shards}."
         )
 
-    if chunks_provided and sizes_provided:
-        raise ValueError(
-            "Cannot specify both chunks/shards and chunk_size_mb/max_shard_size_mb. "
-            "Use either shape-based parameters (chunks with optional shards) or "
-            "size-based parameters (chunk_size_mb and max_shard_size_mb), not both."
-        )
+    if chunks == "auto":
+        return "auto", shards
 
-    if chunks is not None:
-        return _normalize_explicit_shapes(shape, chunks, shards)
+    if shards == "auto":
+        return chunks, "auto"
 
-    if sizes_provided:
-        effective_max_shard_size_mb = (
-            max_shard_size_mb
-            if max_shard_size_mb is not None
-            else _DEFAULT_MAX_SHARD_SIZE_MB
-        )
-        effective_chunk_size_mb = (
-            chunk_size_mb
-            if chunk_size_mb is not None
-            else min(_DEFAULT_CHUNK_SIZE_MB, effective_max_shard_size_mb)
-        )
-        return _calculate_chunks_and_shards_by_size(
-            shape,
-            dtype,
-            effective_chunk_size_mb,
-            effective_max_shard_size_mb,
-        )
-
-    return _default_chunks_and_shards(shape)
+    return _normalize_explicit_shapes(shape, chunks, shards)
 
 
 def _normalize_explicit_shapes(
