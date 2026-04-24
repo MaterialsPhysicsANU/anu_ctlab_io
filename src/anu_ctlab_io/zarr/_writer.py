@@ -19,6 +19,11 @@ from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
+_DEFAULT_3D_ZARR_CHUNKS = (32, 32, 32)
+_DEFAULT_2D_ZARR_CHUNKS = (1, 256, 256)
+_DEFAULT_CHUNK_SIZE_MB = 10.0
+_DEFAULT_MAX_SHARD_SIZE_MB = 1000.0
+
 
 class OMEZarrVersion(Enum):
     """OME-Zarr specification version to use when writing."""
@@ -32,9 +37,9 @@ def dataset_to_zarr(
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     ome_zarr_version: OMEZarrVersion | None = OMEZarrVersion.v05,
-    max_shard_size_mb: float = 1000.0,
+    max_shard_size_mb: float | None = None,
     history: History | None = None,
-    chunk_size_mb: float = 10.0,
+    chunk_size_mb: float | None = None,
     chunks: tuple[int, ...] | None = None,
     shards: tuple[int, ...] | None = None,
     create_array_kwargs: dict[str, Any] | None = None,
@@ -49,19 +54,31 @@ def dataset_to_zarr(
     :param ome_zarr_version: OME-Zarr specification version to use.
         Set to :any:`OMEZarrVersion.v05` (default) to write OME-Zarr V0.5 group format.
         Set to ``None`` to write a simple Zarr V3 array with mango metadata.
-    :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding. Default 1000 MB (1 GB).
+    :param max_shard_size_mb: Maximum shard size in MB for optional size-based Zarr v3 sharding.
+        Set this, or ``chunk_size_mb``, to opt into size-based layout calculation.
+        If this is set while ``chunk_size_mb`` is ``None``, the chunk size falls back to 10.0 MB.
+        This size-based API is not recommended for new code and may be deprecated in the future.
         Shards group multiple chunks into indexed files for better filesystem performance.
         Mutually exclusive with ``chunks`` and ``shards`` parameters.
     :param history: Dictionary of history entries to add. Keys should be identifiers,
         values are history strings.
-    :param chunk_size_mb: Target chunk size in MB for automatic chunking. Default 10.0 MB.
+    :param chunk_size_mb: Target chunk size in MB for optional size-based chunk calculation.
+        Set this, or ``max_shard_size_mb``, to opt into size-based layout calculation.
+        If this is set while ``max_shard_size_mb`` is ``None``, the shard size falls back to 1000.0 MB.
+        Otherwise the default layout is fixed at ``chunks=(32, 32, 32)`` with shards
+        spanning the full X/Y domain and Z depth 32.
+        This size-based API is not recommended for new code and may be deprecated in the future.
         Mutually exclusive with ``chunks`` and ``shards`` parameters.
     :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
-        Must be provided together with ``shards``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
-        When provided, user is responsible for ensuring valid chunk/shard alignment.
+        Can be provided on its own to write a non-sharded Zarr array, or together with
+        ``shards`` to use the sharding codec. Cannot be used with ``chunk_size_mb`` or
+        ``max_shard_size_mb``.
+        A value of ``0`` means "span this axis" - the full array axis for unsharded writes,
+        or the full shard axis when ``shards`` is also provided.
     :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
         Must be provided together with ``chunks``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
-        When provided, user is responsible for ensuring valid chunk/shard alignment.
+        A value of ``0`` means "span the full array axis".
+        When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
     :param extra_attrs: Additional attributes to include in mango metadata.
@@ -85,33 +102,14 @@ def dataset_to_zarr(
     data_array = dataset.data
     storage_dtype = data_array.dtype
 
-    shape = data_array.shape
-
-    chunks_provided = chunks is not None
-    shards_provided = shards is not None
-    sizes_provided = (chunk_size_mb != 10.0) or (max_shard_size_mb != 1000.0)
-
-    if chunks_provided != shards_provided:
-        raise ValueError(
-            "chunks and shards must both be provided or both be None. "
-            f"Got chunks={'provided' if chunks_provided else 'None'}, "
-            f"shards={'provided' if shards_provided else 'None'}."
-        )
-
-    if chunks_provided and sizes_provided:
-        raise ValueError(
-            "Cannot specify both chunks/shards and chunk_size_mb/max_shard_size_mb. "
-            "Use either shape-based parameters (chunks and shards) or "
-            "size-based parameters (chunk_size_mb and max_shard_size_mb), not both."
-        )
-
-    if chunks is not None and shards is not None:
-        inner_chunks = chunks
-        outer_shards = shards
-    else:
-        inner_chunks, outer_shards = _calculate_chunks_and_shards(
-            shape, storage_dtype, chunk_size_mb, max_shard_size_mb
-        )
+    inner_chunks, outer_shards = _resolve_zarr_layout(
+        shape=data_array.shape,
+        dtype=storage_dtype,
+        chunk_size_mb=chunk_size_mb,
+        max_shard_size_mb=max_shard_size_mb,
+        chunks=chunks,
+        shards=shards,
+    )
 
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:
@@ -145,7 +143,134 @@ def dataset_to_zarr(
         )
 
 
-def _calculate_chunks_and_shards(
+def _round_up_to_multiple(value: int, multiple: int) -> int:
+    return ((value + multiple - 1) // multiple) * multiple
+
+
+def _resolve_zarr_layout(
+    *,
+    shape: tuple[int, ...],
+    dtype: np.dtype[Any],
+    chunk_size_mb: float | None,
+    max_shard_size_mb: float | None,
+    chunks: tuple[int, ...] | None,
+    shards: tuple[int, ...] | None,
+) -> tuple[tuple[int, ...], tuple[int, ...] | None]:
+    """Resolve the final Zarr chunk/shard layout from the supported writer inputs.
+
+    The resolution order is:
+    - explicit ``chunks``/``shards`` shapes when provided
+    - size-based layout from ``chunk_size_mb`` and/or ``max_shard_size_mb``
+    - the library default layout of ``(32, 32, 32)`` subchunks with X/Y-spanning shards
+      or, for ``z == 1`` data, ``(1, 256, 256)``-style in-plane chunks constrained by the array shape
+
+    Explicit shapes also support ``0`` as a sentinel. In ``chunks``, ``0`` means span
+    the full array axis for unsharded writes, or the full shard axis when ``shards`` is
+    provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
+    of the resolved chunk size so the sharding codec remains valid.
+
+    The size-based ``chunk_size_mb`` / ``max_shard_size_mb`` path is kept for backward
+    compatibility, but it is not recommended for new code and may be deprecated in the future.
+    """
+    chunks_provided = chunks is not None
+    shards_provided = shards is not None
+    sizes_provided = (chunk_size_mb is not None) or (max_shard_size_mb is not None)
+
+    if shards_provided and not chunks_provided:
+        raise ValueError(
+            "shards requires chunks to also be provided. "
+            f"Got chunks={chunks}, shards={shards}."
+        )
+
+    if chunks_provided and sizes_provided:
+        raise ValueError(
+            "Cannot specify both chunks/shards and chunk_size_mb/max_shard_size_mb. "
+            "Use either shape-based parameters (chunks with optional shards) or "
+            "size-based parameters (chunk_size_mb and max_shard_size_mb), not both."
+        )
+
+    if chunks is not None:
+        return _normalize_explicit_shapes(shape, chunks, shards)
+
+    if sizes_provided:
+        effective_max_shard_size_mb = (
+            max_shard_size_mb
+            if max_shard_size_mb is not None
+            else _DEFAULT_MAX_SHARD_SIZE_MB
+        )
+        effective_chunk_size_mb = (
+            chunk_size_mb
+            if chunk_size_mb is not None
+            else min(_DEFAULT_CHUNK_SIZE_MB, effective_max_shard_size_mb)
+        )
+        return _calculate_chunks_and_shards_by_size(
+            shape,
+            dtype,
+            effective_chunk_size_mb,
+            effective_max_shard_size_mb,
+        )
+
+    return _default_chunks_and_shards(shape)
+
+
+def _normalize_explicit_shapes(
+    shape: tuple[int, ...],
+    chunks: tuple[int, ...],
+    shards: tuple[int, ...] | None,
+) -> tuple[tuple[int, ...], tuple[int, ...] | None]:
+    if len(chunks) != len(shape):
+        raise ValueError(
+            f"chunks must have the same number of dimensions as the array shape. Got chunks={chunks}, shape={shape}."
+        )
+    if shards is not None and len(shards) != len(shape):
+        raise ValueError(
+            f"shards must have the same number of dimensions as the array shape. Got shards={shards}, shape={shape}."
+        )
+
+    chunk_span = (
+        tuple(
+            axis_size if shard_size == 0 else shard_size
+            for shard_size, axis_size in zip(shards, shape, strict=True)
+        )
+        if shards is not None
+        else shape
+    )
+    resolved_chunks = tuple(
+        axis_size if chunk_size == 0 else chunk_size
+        for chunk_size, axis_size in zip(chunks, chunk_span, strict=True)
+    )
+
+    resolved_shards: tuple[int, ...] | None = None
+    if shards is not None:
+        resolved_shards = tuple(
+            _round_up_to_multiple(axis_size, chunk_size)
+            if shard_size == 0
+            else shard_size
+            for shard_size, axis_size, chunk_size in zip(
+                shards, shape, resolved_chunks, strict=True
+            )
+        )
+
+    return resolved_chunks, resolved_shards
+
+
+def _default_chunks_and_shards(
+    shape: tuple[int, ...],
+) -> tuple[tuple[int, ...], tuple[int, ...]]:
+    z_chunk, y_chunk, x_chunk = (
+        _DEFAULT_2D_ZARR_CHUNKS if shape[0] == 1 else _DEFAULT_3D_ZARR_CHUNKS
+    )
+    zdim, ydim, xdim = shape
+    inner_chunks = (min(z_chunk, zdim), min(y_chunk, ydim), min(x_chunk, xdim))
+    outer_shards = (
+        inner_chunks[0],
+        inner_chunks[1] if ydim < y_chunk else _round_up_to_multiple(ydim, y_chunk),
+        inner_chunks[2] if xdim < x_chunk else _round_up_to_multiple(xdim, x_chunk),
+    )
+    return inner_chunks, outer_shards
+
+
+def _calculate_chunks_and_shards_by_size(
     shape: tuple[int, ...],
     dtype: np.dtype[Any],
     chunk_size_mb: float,
@@ -236,7 +361,7 @@ def _write_ome_zarr_group(
     path: Path,
     dataset: Dataset,
     inner_chunks: tuple[int, ...],
-    outer_shards: tuple[int, ...],
+    outer_shards: tuple[int, ...] | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
@@ -246,6 +371,8 @@ def _write_ome_zarr_group(
     In Zarr v3 sharding:
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
+
+    If ``outer_shards`` is ``None``, the array is written without the sharding codec.
     """
 
     if not str(path).endswith(".zarr"):
@@ -322,13 +449,13 @@ def _write_zarr_array(
     path: Path,
     dataset: Dataset,
     inner_chunks: tuple[int, ...],
-    outer_shards: tuple[int, ...],
+    outer_shards: tuple[int, ...] | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
 ) -> None:
-    """Write data as a simple Zarr V3 array with mango metadata and sharding.
+    """Write data as a simple Zarr V3 array with mango metadata.
 
-    In Zarr v3 sharding:
+    When ``outer_shards`` is provided, Zarr v3 sharding is used:
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
@@ -346,8 +473,8 @@ def _write_zarr_array(
     array = zarr.create_array(
         path,
         shape=data_array.shape,
-        chunks=inner_chunks,  # Inner chunk subdivisions
-        shards=outer_shards,  # Outer shard size
+        chunks=inner_chunks,
+        shards=outer_shards,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
         overwrite=True,
