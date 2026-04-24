@@ -17,7 +17,9 @@ pip install anu-ctlab-io-cli
 anu-ctlab-io <input> <output> [--input-format FORMAT] [--output-format FORMAT]
 ```
 
-The format is auto-detected from the file extension by default.
+The format is auto-detected from the file extension by default. The scheduler defaults
+to `auto`, which uses `distributed-mpi` when launched under an MPI runtime such as
+`mpirun`/`mpiexec`, and `threads` otherwise.
 
 ### Examples
 
@@ -31,10 +33,11 @@ anu-ctlab-io tomoHiRes_nc tomoHiRes.raw
 
 ### Options
 
-| Option            | Values                          | Default |
-| ----------------- | ------------------------------- | ------- |
-| `--input-format`  | `auto`, `NetCDF`, `zarr`        | `auto`  |
-| `--output-format` | `auto`, `NetCDF`, `zarr`, `raw` | `auto`  |
+| Option            | Values                                                                          | Default |
+| ----------------- | ------------------------------------------------------------------------------- | ------- |
+| `--input-format`  | `auto`, `NetCDF`, `zarr`                                                        | `auto`  |
+| `--output-format` | `auto`, `NetCDF`, `zarr`, `raw`                                                 | `auto`  |
+| `--scheduler`     | `auto`, `synchronous`, `threads`, `processes`, `distributed`, `distributed-mpi` | `auto`  |
 
 ## License
 

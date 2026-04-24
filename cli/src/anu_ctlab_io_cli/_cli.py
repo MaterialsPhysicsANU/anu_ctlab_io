@@ -1,6 +1,7 @@
 """CLI entry point for anu-ctlab-io."""
 
 import logging
+import os
 from enum import Enum
 from pathlib import Path
 from typing import Annotated
@@ -29,6 +30,7 @@ class OutputStorageFormat(str, Enum):
 
 
 class Scheduler(str, Enum):
+    auto = "auto"
     synchronous = "synchronous"
     threads = "threads"
     processes = "processes"
@@ -58,7 +60,7 @@ def cli(
             "--scheduler",
             help="Dask scheduler to use.",
         ),
-    ] = Scheduler.threads,
+    ] = Scheduler.auto,
     log_level: Annotated[
         str,
         typer.Option(
@@ -69,9 +71,11 @@ def cli(
 ) -> None:
     """Convert between ANU CTLab array formats."""
     logging.getLogger().setLevel(log_level.upper())
-    match scheduler:
+    resolved_scheduler = _resolve_scheduler(scheduler)
+    logger.info("Scheduler: %s", resolved_scheduler.value)
+    match resolved_scheduler:
         case Scheduler.distributed_mpi | Scheduler.distributed:
-            if scheduler == Scheduler.distributed_mpi:
+            if resolved_scheduler == Scheduler.distributed_mpi:
                 try:
                     from dask_mpi import initialize
                 except ImportError as e:
@@ -91,9 +95,7 @@ def cli(
                     future = client.compute(result)
                     progress(future)
                     wait(future)
-            if scheduler == Scheduler.distributed_mpi:
-                import os
-
+            if resolved_scheduler == Scheduler.distributed_mpi:
                 os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
         case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
             from dask.diagnostics import ProgressBar
@@ -101,7 +103,33 @@ def cli(
             with ProgressBar():
                 result = _convert(input, output, input_format, output_format)
                 if result is not None:
-                    result.compute(scheduler=scheduler.value)
+                    result.compute(scheduler=resolved_scheduler.value)
+
+
+def _is_running_under_mpi(env: dict[str, str] | None = None) -> bool:
+    """Detect common environment variables injected by MPI launchers."""
+    if env is None:
+        env = os.environ
+
+    mpi_markers = (
+        "OMPI_COMM_WORLD_SIZE",
+        "OMPI_COMM_WORLD_RANK",
+        "PMI_SIZE",
+        "PMI_RANK",
+        "PMIX_RANK",
+        "MPI_LOCALRANKID",
+        "MPIRUN_RANK",
+        "HYDI_CONTROL_FD",
+    )
+    return any(var in env for var in mpi_markers)
+
+
+def _resolve_scheduler(scheduler: Scheduler) -> Scheduler:
+    if scheduler != Scheduler.auto:
+        return scheduler
+    if _is_running_under_mpi():
+        return Scheduler.distributed_mpi
+    return Scheduler.threads
 
 
 def _fmt_bytes(n: float) -> str:
