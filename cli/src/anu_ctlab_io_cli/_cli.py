@@ -140,14 +140,7 @@ def _convert(
     logger.info("Input: %s", input)
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
-    try:
-        return dataset.to_path(output, filetype=output_format.value, compute=False)
-    except ValueError as err:
-        raise typer.BadParameter(
-            f"cannot infer output format from '{output.name}'. "
-            "Specify one of: NetCDF, zarr, raw.",
-            param_hint="--output-format",
-        ) from err
+    return dataset.to_path(output, filetype=output_format.value, compute=False)
 
 
 def main() -> None:
