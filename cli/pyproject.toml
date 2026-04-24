@@ -20,13 +20,13 @@ maintainers = [
 ]
 dependencies = [
     "anu-ctlab-io[all]~=1.2.2",
+    "dask[distributed]>=2025.2.0",
     "typer>=0.24.1",
 ]
 
 [project.optional-dependencies]
 mpi = [
     "dask-mpi>=2026.3.0",
-    "dask[distributed]>=2025.2.0",
 ]
 
 [project.scripts]
