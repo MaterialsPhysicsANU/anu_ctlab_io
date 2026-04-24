@@ -132,6 +132,44 @@ def _create_dimensions(
     ncfile.createDimension(f"{datatype_str}_xdim", xdim)
 
 
+def _is_hdf5_compatible_dtype(dtype: np.dtype) -> bool:
+    """Check if a numpy dtype can be stored in HDF5."""
+    # HDF5 supports numeric types, bytes, and bool
+    return (
+        np.issubdtype(dtype, np.number)
+        or np.issubdtype(dtype, np.bytes_)
+        or dtype == np.bool_
+    )
+
+
+def _sanitise_attribute_value(value: Any) -> Any:
+    """Convert attribute value to an HDF5-compatible type.
+
+    Converts arrays and objects with incompatible dtypes to strings.
+    Strings are encoded as ASCII bytes (with backslash-escape for non-ASCII) to
+    match reference NetCDF conventions.
+    """
+    match value:
+        # Numeric scalars, bytes, and booleans are safe for HDF5
+        case int() | float() | np.integer() | np.floating() | bytes() | np.bytes_():
+            return value
+        # Numpy arrays with HDF5-compatible dtype are safe
+        case np.ndarray() if _is_hdf5_compatible_dtype(value.dtype):
+            return value
+        # Convert list/tuple to array and recurse
+        case list() | tuple():
+            try:
+                arr = np.array(value)
+                return _sanitise_attribute_value(arr)
+            except (ValueError, TypeError):
+                pass
+
+    # Everything else: encode to string bytes
+    # Use backslashreplace error handler for non-ASCII characters
+    str_value = value if isinstance(value, str) else str(value)
+    return np.bytes_(str_value.encode("ascii", errors="backslashreplace"))
+
+
 def _set_global_attributes(
     ncfile: nc4.Dataset,
     zdim: int,
@@ -148,17 +186,13 @@ def _set_global_attributes(
     ncfile.setncattr("number_of_files", np.int32(num_files))
     ncfile.setncattr("zdim_range", np.array([z_start, z_end], dtype=np.int32))
     for key, value in common_attrs.items():  # NOTE: h5netcdf lacks setncatts
-        # h5netcdf stores Python str as UTF-8 NC_STRING; encode to bytes so it
-        # is stored as ASCII NC_CHAR, matching what the reference files use.
-        ncfile.setncattr(
-            key, np.bytes_(value.encode("ascii")) if isinstance(value, str) else value
-        )
+        ncfile.setncattr(key, _sanitise_attribute_value(value))
 
     if include_history and serialized_history:
         for key, value in serialized_history.items():
             ncfile.setncattr(
                 f"history_{key}",
-                np.bytes_(value.encode("ascii")) if isinstance(value, str) else value,
+                _sanitise_attribute_value(value),
             )
 
 
