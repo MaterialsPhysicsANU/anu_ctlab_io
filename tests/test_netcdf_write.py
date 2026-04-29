@@ -15,8 +15,9 @@ except ImportError:
 
 import anu_ctlab_io
 
+pytestmark = pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+
 def test_write_single_netcdf():
     """Test writing a single NetCDF file."""
     # Create test dataset
@@ -54,7 +55,6 @@ def test_write_single_netcdf():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_write_split_netcdf():
     """Test writing split NetCDF files."""
     # Create test dataset (100 z-slices)
@@ -104,7 +104,6 @@ def test_write_split_netcdf():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_roundtrip_against_reference():
     """Test roundtrip by comparing with reference files."""
     # Read existing test file
@@ -133,7 +132,6 @@ def test_roundtrip_against_reference():
         assert read_dataset.voxel_unit == original_dataset.voxel_unit
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_write_split_replaces_nc_extension():
     """Test that split writing replaces .nc with _nc in directory name."""
     shape = (50, 20, 30)
@@ -180,7 +178,6 @@ def test_write_split_replaces_nc_extension():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_netcdf_history_roundtrip():
     """Test that history is preserved when reading and writing NetCDF files.
 
@@ -242,7 +239,6 @@ def test_netcdf_history_roundtrip():
                         assert orig_val == read_val
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_netcdf_default_split_behavior():
     """Test that NetCDF defaults to split files for large datasets.
 
@@ -292,7 +288,6 @@ def test_netcdf_default_split_behavior():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_netcdf_single_file_option():
     """Test that max_file_size_mb=None forces single file output."""
     shape = (50, 20, 30)
@@ -331,7 +326,6 @@ def test_netcdf_single_file_option():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_netcdf_write_with_parallel_dask_config():
     """Test that NetCDF writes work correctly even with parallel dask configuration.
 

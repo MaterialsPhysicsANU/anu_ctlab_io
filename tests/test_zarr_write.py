@@ -16,8 +16,9 @@ except ImportError:
 
 import anu_ctlab_io
 
+pytestmark = pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
+
 def test_write_single_ome_zarr():
     """Test writing a single OME-Zarr group."""
     shape = (10, 20, 30)
@@ -59,7 +60,6 @@ def test_write_single_ome_zarr():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_single_zarr_array():
     """Test writing a simple Zarr V3 array with mango metadata."""
     shape = (10, 20, 30)
@@ -101,7 +101,6 @@ def test_write_single_zarr_array():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_without_datatype():
     """Test writing OME-Zarr without mango metadata (no datatype)."""
     shape = (5, 10, 15)
@@ -132,7 +131,6 @@ def test_write_without_datatype():
         assert np.allclose(read_dataset.voxel_size, (1.0, 1.0, 1.0))
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_split_zarr():
     """Test writing sharded Zarr stores (replaces old split store functionality)."""
     shape = (100, 20, 30)
@@ -184,7 +182,6 @@ def test_write_split_zarr():
         assert np.isclose(original_sum, loaded_sum)
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_roundtrip_against_reference():
     """Test roundtrip by comparing with reference Zarr files."""
     # Read existing test file
@@ -215,7 +212,6 @@ def test_roundtrip_against_reference():
         assert read_dataset.dimension_names == original_dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_roundtrip_ome_zarr():
     """Test roundtrip with OME-Zarr format."""
     # Read existing OME-Zarr test file
@@ -245,7 +241,6 @@ def test_roundtrip_ome_zarr():
         assert read_dataset.voxel_unit == original_dataset.voxel_unit
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_to_path_auto_detection():
     """Test that Dataset.to_path() correctly auto-detects .zarr extension."""
     shape = (5, 10, 15)
@@ -277,7 +272,6 @@ def test_to_path_auto_detection():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_with_history():
     """Test writing with custom history metadata."""
     shape = (5, 10, 15)
@@ -311,7 +305,6 @@ def test_write_with_history():
         assert "step2" in read_dataset.history
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_different_dtypes():
     """Test writing with different numpy dtypes."""
     dtypes = [np.uint8, np.uint16, np.int16, np.float32]
@@ -339,7 +332,6 @@ def test_write_different_dtypes():
             assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_with_explicit_chunks_and_shards():
     """Test writing with user-provided chunk and shard shapes."""
     shape = (100, 50, 60)
@@ -374,7 +366,6 @@ def test_write_with_explicit_chunks_and_shards():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_write_explicit_shapes_roundtrip():
     """Test roundtrip with explicit chunk and shard shapes."""
     shape = (60, 40, 50)
@@ -412,7 +403,6 @@ def test_write_explicit_shapes_roundtrip():
         assert np.allclose(read_dataset.voxel_size, dataset.voxel_size)
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_error_chunks_without_shards():
     """Test that providing chunks without shards raises ValueError."""
     shape = (10, 20, 30)
@@ -437,7 +427,6 @@ def test_error_chunks_without_shards():
             )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_error_shards_without_chunks():
     """Test that providing shards without chunks raises ValueError."""
     shape = (10, 20, 30)
@@ -462,7 +451,6 @@ def test_error_shards_without_chunks():
             )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_error_both_shapes_and_sizes():
     """Test that providing both shapes and sizes raises ValueError."""
     shape = (10, 20, 30)
@@ -491,7 +479,6 @@ def test_error_both_shapes_and_sizes():
             )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_error_shapes_and_max_shard_size():
     """Test that providing shapes with max_shard_size_mb raises ValueError."""
     shape = (10, 20, 30)
@@ -520,7 +507,6 @@ def test_error_shapes_and_max_shard_size():
             )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_user_shapes_used_without_validation():
     """Test that user-provided shapes are used directly without validation."""
     shape = (100, 50, 60)
@@ -554,7 +540,6 @@ def test_user_shapes_used_without_validation():
         assert read_dataset.data.shape == shape
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_irregular_dask_chunks_write_correct_data():
     """Regression test: dask chunks smaller than the shard must not produce zeros (corruption) in output.
 
@@ -661,7 +646,6 @@ def test_irregular_dask_chunks_write_correct_data():
         )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_no_false_warning_with_remainder_chunks():
     """Test that no false-positive warning occurs when shards don't divide evenly into array size.
 
