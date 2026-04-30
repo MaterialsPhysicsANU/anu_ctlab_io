@@ -19,20 +19,10 @@ import anu_ctlab_io
 pytestmark = pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 
 
-def test_write_single_ome_zarr():
+def test_write_single_ome_zarr(_make_dataset):
     """Test writing a single OME-Zarr group."""
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_output.zarr"
@@ -60,20 +50,10 @@ def test_write_single_ome_zarr():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-def test_write_single_zarr_array():
+def test_write_single_zarr_array(_make_dataset):
     """Test writing a simple Zarr V3 array with mango metadata."""
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_output.zarr"
@@ -101,18 +81,15 @@ def test_write_single_zarr_array():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-def test_write_without_datatype():
+def test_write_without_datatype(_make_dataset):
     """Test writing OME-Zarr without mango metadata (no datatype)."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.float32).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
+    dataset, data = _make_dataset(
+        shape,
+        dtype=np.float32,
         voxel_unit=anu_ctlab_io.VoxelUnit.UM,
         voxel_size=(1.0, 1.0, 1.0),
+        datatype=None,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -131,20 +108,10 @@ def test_write_without_datatype():
         assert np.allclose(read_dataset.voxel_size, (1.0, 1.0, 1.0))
 
 
-def test_write_split_zarr():
+def test_write_split_zarr(_make_dataset):
     """Test writing sharded Zarr stores (replaces old split store functionality)."""
     shape = (100, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_sharded.zarr"
@@ -241,20 +208,10 @@ def test_roundtrip_ome_zarr():
         assert read_dataset.voxel_unit == original_dataset.voxel_unit
 
 
-def test_to_path_auto_detection():
+def test_to_path_auto_detection(_make_dataset):
     """Test that Dataset.to_path() correctly auto-detects .zarr extension."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "auto_detect.zarr"
@@ -272,26 +229,15 @@ def test_to_path_auto_detection():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-def test_write_with_history():
+def test_write_with_history(_make_dataset):
     """Test writing with custom history metadata."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
     custom_history = {
         "step1": {"operation": "reconstruction", "timestamp": "2024-01-01"},
         "step2": {"operation": "filtering", "timestamp": "2024-01-02"},
     }
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-        history=custom_history,
-    )
+    dataset, _ = _make_dataset(shape, history=custom_history)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "history_test.zarr"
@@ -305,22 +251,13 @@ def test_write_with_history():
         assert "step2" in read_dataset.history
 
 
-def test_write_different_dtypes():
+def test_write_different_dtypes(_make_dataset):
     """Test writing with different numpy dtypes."""
     dtypes = [np.uint8, np.uint16, np.int16, np.float32]
 
     for dtype in dtypes:
         shape = (5, 10, 15)
-        data = da.from_array(
-            np.arange(np.prod(shape), dtype=dtype).reshape(shape), chunks=shape
-        )
-
-        dataset = anu_ctlab_io.Dataset(
-            data=data,
-            dimension_names=("z", "y", "x"),
-            voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-            voxel_size=(0.05, 0.05, 0.05),
-        )
+        dataset, data = _make_dataset(shape, dtype=dtype)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / f"dtype_{dtype.__name__}.zarr"
@@ -332,20 +269,10 @@ def test_write_different_dtypes():
             assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-def test_write_with_explicit_chunks_and_shards():
+def test_write_with_explicit_chunks_and_shards(_make_dataset):
     """Test writing with user-provided chunk and shard shapes."""
     shape = (100, 50, 60)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 50, 60)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 50, 60))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "explicit_shapes.zarr"
@@ -366,19 +293,12 @@ def test_write_with_explicit_chunks_and_shards():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-def test_write_explicit_shapes_roundtrip():
+def test_write_explicit_shapes_roundtrip(_make_dataset):
     """Test roundtrip with explicit chunk and shard shapes."""
     shape = (60, 40, 50)
-    data = da.from_array(
-        np.random.randint(0, 1000, shape, dtype=np.uint16), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.UM,
-        voxel_size=(1.0, 1.0, 1.0),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, data = _make_dataset(
+        shape,
+        data=np.random.randint(0, 1000, shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -403,17 +323,11 @@ def test_write_explicit_shapes_roundtrip():
         assert np.allclose(read_dataset.voxel_size, dataset.voxel_size)
 
 
-def test_error_chunks_without_shards():
+def test_error_chunks_without_shards(_make_dataset):
     """Test that providing chunks without shards raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -427,17 +341,11 @@ def test_error_chunks_without_shards():
             )
 
 
-def test_error_shards_without_chunks():
+def test_error_shards_without_chunks(_make_dataset):
     """Test that providing shards without chunks raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -451,17 +359,11 @@ def test_error_shards_without_chunks():
             )
 
 
-def test_error_both_shapes_and_sizes():
+def test_error_both_shapes_and_sizes(_make_dataset):
     """Test that providing both shapes and sizes raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -479,17 +381,11 @@ def test_error_both_shapes_and_sizes():
             )
 
 
-def test_error_shapes_and_max_shard_size():
+def test_error_shapes_and_max_shard_size(_make_dataset):
     """Test that providing shapes with max_shard_size_mb raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -507,17 +403,12 @@ def test_error_shapes_and_max_shard_size():
             )
 
 
-def test_user_shapes_used_without_validation():
+def test_user_shapes_used_without_validation(_make_dataset):
     """Test that user-provided shapes are used directly without validation."""
     shape = (100, 50, 60)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        shape,
+        data=np.zeros(shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -540,7 +431,7 @@ def test_user_shapes_used_without_validation():
         assert read_dataset.data.shape == shape
 
 
-def test_irregular_dask_chunks_write_correct_data():
+def test_irregular_dask_chunks_write_correct_data(_make_dataset):
     """Regression test: dask chunks smaller than the shard must not produce zeros (corruption) in output.
 
     dask's to_zarr, when writing to an existing zarr.Array, calls normalize_chunks("auto")
@@ -619,12 +510,10 @@ def test_irregular_dask_chunks_write_correct_data():
         # ---- part 2: confirm dataset_to_zarr produces correct output under the same mock ----
         # If the writer regresses to to_zarr, the injected sub-shard chunks will corrupt
         # the output and the data equality assertion will fail.
-        sub_shard_dataset = anu_ctlab_io.Dataset(
-            data=da.from_array(full_data, chunks=(sub_shard_z, shape[1], shape[2])),
-            dimension_names=("z", "y", "x"),
-            voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-            voxel_size=(0.05, 0.05, 0.05),
-            datatype=anu_ctlab_io.DataType.TOMO,
+        sub_shard_dataset, _ = _make_dataset(
+            shape,
+            chunks=(sub_shard_z, shape[1], shape[2]),
+            data=full_data,
         )
         new_path = Path(tmpdir) / "new.zarr"
         with patch(
@@ -646,7 +535,7 @@ def test_irregular_dask_chunks_write_correct_data():
         )
 
 
-def test_no_false_warning_with_remainder_chunks():
+def test_no_false_warning_with_remainder_chunks(_make_dataset):
     """Test that no false-positive warning occurs when shards don't divide evenly into array size.
 
     This is a regression test for the Dask Zarr write warning bug that was fixed in:
@@ -657,14 +546,9 @@ def test_no_false_warning_with_remainder_chunks():
     """
     # Use a shape where automatic chunking produces remainder chunks
     shape = (105, 50, 60)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, data = _make_dataset(
+        shape,
+        data=np.zeros(shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
