@@ -134,19 +134,19 @@ version = "0.1.1"
 source = { editable = "cli" }
 dependencies = [
     { name = "anu-ctlab-io", extra = ["all"] },
+    { name = "dask", extra = ["distributed"] },
     { name = "typer" },
 ]
 
 [package.optional-dependencies]
 mpi = [
-    { name = "dask", extra = ["distributed"] },
     { name = "dask-mpi" },
 ]
 
 [package.metadata]
 requires-dist = [
     { name = "anu-ctlab-io", extras = ["all"], editable = "." },
-    { name = "dask", extras = ["distributed"], marker = "extra == 'mpi'", specifier = ">=2025.2.0" },
+    { name = "dask", extras = ["distributed"], specifier = ">=2025.2.0" },
     { name = "dask-mpi", marker = "extra == 'mpi'", specifier = ">=2026.3.0" },
     { name = "typer", specifier = ">=0.24.1" },
 ]
