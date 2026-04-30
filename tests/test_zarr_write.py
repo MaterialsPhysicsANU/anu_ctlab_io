@@ -120,7 +120,7 @@ def test_write_zarr_deprecated_size_args_warn_and_use_default_layout(_make_datas
 
         with pytest.warns(
             UserWarning,
-            match="chunk_size_mb, max_shard_size_mb is ignored when writing Zarr",
+            match="chunk_size_mb, max_shard_size_mb are ignored when writing Zarr",
         ):
             anu_ctlab_io.zarr.dataset_to_zarr(
                 dataset,
@@ -590,7 +590,7 @@ def test_no_false_warning_with_remainder_chunks(_make_dataset):
             ]
             assert len(user_warnings) == 1
             assert (
-                "chunk_size_mb, max_shard_size_mb is ignored when writing Zarr"
+                "chunk_size_mb, max_shard_size_mb are ignored when writing Zarr"
                 in str(user_warnings[0].message)
             )
 
@@ -733,7 +733,7 @@ def test_size_parameters_warn_and_explicit_shapes_still_win(_make_dataset):
         output_path = Path(tmpdir) / "explicit_shapes_with_ignored_sizes.zarr"
         with pytest.warns(
             UserWarning,
-            match="chunk_size_mb, max_shard_size_mb is ignored when writing Zarr",
+            match="chunk_size_mb, max_shard_size_mb are ignored when writing Zarr",
         ):
             anu_ctlab_io.zarr.dataset_to_zarr(
                 dataset,

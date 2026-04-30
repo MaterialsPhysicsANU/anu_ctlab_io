@@ -115,8 +115,9 @@ def dataset_to_zarr(
         if value is not None
     )
     if ignored_size_args:
+        verb = "are" if "," in ignored_size_args else "is"
         warnings.warn(
-            f"{ignored_size_args} is ignored when writing Zarr. Use chunks/shards or 'auto' instead.",
+            f"{ignored_size_args} {verb} ignored when writing Zarr. Use chunks/shards or 'auto' instead.",
             UserWarning,
             stacklevel=2,
         )
@@ -163,6 +164,11 @@ def dataset_to_zarr(
 
 
 def _round_up_to_multiple(value: int, multiple: int) -> int:
+    if multiple == 0:
+        raise ValueError(
+            f"Cannot round up to a multiple of zero (value={value}). "
+            "The array likely has a zero-length axis, which is not supported."
+        )
     return ((value + multiple - 1) // multiple) * multiple
 
 
@@ -321,7 +327,7 @@ def _write_ome_zarr_group(
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
 ) -> None:
-    """Write data as an OME-Zarr group with Zarr v3 sharding.
+    """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
     In Zarr v3 sharding:
     - inner_chunks (chunks param) = subdivisions within each shard file
