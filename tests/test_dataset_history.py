@@ -1,30 +1,25 @@
 """Tests for Dataset history modification methods."""
 
-import dask.array as da
 import numpy as np
+import pytest
 
 import anu_ctlab_io
 
 
-def create_test_dataset():
+@pytest.fixture
+def test_dataset(_make_dataset):
     """Create a simple test dataset."""
-    shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-    return anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
         voxel_size=(0.1, 0.1, 0.1),
-        datatype=anu_ctlab_io.DataType.TOMO,
         history={"initial": {"created": "test"}},
     )
+    return dataset
 
 
-def test_add_to_history_dict():
+def test_add_to_history_dict(test_dataset):
     """Test adding a dict entry to history."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Add history entry
     ds.add_to_history("20260128_crop", {"operation": "crop", "z_range": [10, 50]})
@@ -38,9 +33,9 @@ def test_add_to_history_dict():
     assert "initial" in ds.history
 
 
-def test_add_to_history_string():
+def test_add_to_history_string(test_dataset):
     """Test adding a string entry to history."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Add string history entry
     ds.add_to_history("20260128_note", "Cropped to region of interest")
@@ -50,18 +45,12 @@ def test_add_to_history_string():
     assert ds.history["20260128_note"] == "Cropped to region of interest"
 
 
-def test_add_to_history_empty_dataset():
+def test_add_to_history_empty_dataset(_make_dataset):
     """Test adding history to a dataset with no existing history."""
     shape = (5, 10, 15)
-    data = da.zeros(shape, dtype=np.uint16, chunks=shape)
 
     # Create dataset with no history (defaults to {})
-    ds = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.1, 0.1, 0.1),
-    )
+    ds, _ = _make_dataset(shape, data=np.zeros(shape, dtype=np.uint16), datatype=None)
 
     # Add history to empty history
     ds.add_to_history("first_entry", {"operation": "test"})
@@ -70,9 +59,9 @@ def test_add_to_history_empty_dataset():
     assert "first_entry" in ds.history
 
 
-def test_update_history():
+def test_update_history(test_dataset):
     """Test bulk updating history."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Add multiple entries at once
     ds.update_history(
@@ -95,9 +84,9 @@ def test_update_history():
     assert "initial" in ds.history
 
 
-def test_update_history_overwrites():
+def test_update_history_overwrites(test_dataset):
     """Test that update_history overwrites existing keys."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Overwrite the initial entry
     ds.update_history({"initial": {"updated": "yes"}})
@@ -106,9 +95,9 @@ def test_update_history_overwrites():
     assert "created" not in ds.history["initial"]
 
 
-def test_from_modified_data_only():
+def test_from_modified_data_only(test_dataset):
     """Test from_modified with just data change."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Modify data
     new_data = ds.data[5:, :, :]
@@ -137,9 +126,9 @@ def test_from_modified_data_only():
     assert "20260128_crop" not in ds.history
 
 
-def test_from_modified_voxel_size():
+def test_from_modified_voxel_size(test_dataset):
     """Test from_modified with voxel size change."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     new_voxel_size = (np.float32(0.2), np.float32(0.2), np.float32(0.2))
     modified = anu_ctlab_io.Dataset.from_modified(
@@ -157,9 +146,9 @@ def test_from_modified_voxel_size():
     assert any("modification" in k for k in history_keys)
 
 
-def test_from_modified_auto_timestamp():
+def test_from_modified_auto_timestamp(test_dataset):
     """Test that from_modified auto-generates timestamp-based keys."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     modified = anu_ctlab_io.Dataset.from_modified(
         ds,
@@ -177,9 +166,9 @@ def test_from_modified_auto_timestamp():
     assert len(key.split("_")[0]) == 8  # YYYYMMDD
 
 
-def test_from_modified_no_history():
+def test_from_modified_no_history(test_dataset):
     """Test from_modified without adding history entry."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Modify without adding history
     modified = anu_ctlab_io.Dataset.from_modified(ds, data=ds.data * 2)
@@ -189,9 +178,9 @@ def test_from_modified_no_history():
     assert len(modified.history) == 1  # Just "initial"
 
 
-def test_from_modified_multiple_attributes():
+def test_from_modified_multiple_attributes(test_dataset):
     """Test from_modified changing multiple attributes."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     modified = anu_ctlab_io.Dataset.from_modified(
         ds,
@@ -212,9 +201,9 @@ def test_from_modified_multiple_attributes():
     assert "20260128_process" in modified.history
 
 
-def test_from_modified_chaining():
+def test_from_modified_chaining(test_dataset):
     """Test chaining multiple from_modified calls."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Chain of operations
     cropped = anu_ctlab_io.Dataset.from_modified(
@@ -244,9 +233,9 @@ def test_from_modified_chaining():
     assert scaled.data.shape == (6, 20, 30)
 
 
-def test_from_modified_dimension_names():
+def test_from_modified_dimension_names(test_dataset):
     """Test from_modified with dimension name changes."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     # Change dimension names (e.g., after transpose)
     modified = anu_ctlab_io.Dataset.from_modified(
@@ -260,9 +249,9 @@ def test_from_modified_dimension_names():
     assert modified.data.shape == (30, 20, 10)
 
 
-def test_history_preserved_in_copy():
+def test_history_preserved_in_copy(test_dataset):
     """Test that from_modified creates independent history copy."""
-    ds = create_test_dataset()
+    ds = test_dataset
 
     modified = anu_ctlab_io.Dataset.from_modified(
         ds, data=ds.data * 2, history_entry={"operation": "scale"}

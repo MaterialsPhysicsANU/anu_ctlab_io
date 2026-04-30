@@ -1,7 +1,6 @@
 import tempfile
 from pathlib import Path
 
-import dask.array as da
 import numpy as np
 import pytest
 
@@ -14,22 +13,13 @@ except ImportError:
 
 import anu_ctlab_io
 
+pytestmark = pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_to_path_auto_nc_extension():
+
+def test_to_path_auto_nc_extension(_make_dataset):
     """Test Dataset.to_path with automatic NetCDF detection via .nc extension."""
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "tomo_output.nc"
@@ -45,21 +35,10 @@ def test_to_path_auto_nc_extension():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_to_path_explicit_netcdf():
+def test_to_path_explicit_netcdf(_make_dataset):
     """Test Dataset.to_path with explicit NetCDF filetype."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.UM,
-        voxel_size=(1.0, 1.0, 1.0),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, _ = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "tomo_output"
@@ -78,21 +57,10 @@ def test_to_path_explicit_netcdf():
         assert read_dataset.data.shape == shape
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_to_path_with_split():
+def test_to_path_with_split(_make_dataset):
     """Test Dataset.to_path with file splitting."""
     shape = (100, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "tomo_split"
@@ -115,7 +83,6 @@ def test_to_path_with_split():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_to_path_roundtrip():
     """Test complete roundtrip: read -> to_path -> from_path."""
     # Read original
@@ -137,21 +104,10 @@ def test_to_path_roundtrip():
         assert np.allclose(roundtrip.voxel_size, original.voxel_size)
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_to_path_error_on_unknown_extension():
+def test_to_path_error_on_unknown_extension(_make_dataset):
     """Test that to_path raises error for unknown file extensions."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(1.0, 1.0, 1.0),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, _ = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "output.unknown"
@@ -161,21 +117,10 @@ def test_to_path_error_on_unknown_extension():
             dataset.to_path(output_path)
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_to_path_split_with_nc_extension():
+def test_to_path_split_with_nc_extension(_make_dataset):
     """Test that split files replace .nc with _nc in directory name."""
     shape = (50, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Path ends with .nc
