@@ -108,7 +108,7 @@ def test_write_without_datatype(_make_dataset):
         assert np.allclose(read_dataset.voxel_size, (1.0, 1.0, 1.0))
 
 
-def test_write_split_zarr(_make_dataset):
+def test_write_zarr_deprecated_size_args_warn_and_use_default_layout(_make_dataset):
     """Deprecated size-based parameters warn and fall back to the default layout."""
     import zarr
 
