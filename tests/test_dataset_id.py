@@ -117,6 +117,7 @@ class TestDatasetIdNetCDF:
         # Create dataset without dataset_id
         ds, _ = _make_dataset(
             (10, 20, 30),
+            datatype=None,
             data=np.ones((10, 20, 30), dtype=np.float32),
         )
 

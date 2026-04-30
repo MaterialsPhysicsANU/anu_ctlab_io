@@ -257,7 +257,7 @@ def test_write_different_dtypes(_make_dataset):
 
     for dtype in dtypes:
         shape = (5, 10, 15)
-        dataset, data = _make_dataset(shape, dtype=dtype)
+        dataset, data = _make_dataset(shape, dtype=dtype, datatype=None)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / f"dtype_{dtype.__name__}.zarr"
