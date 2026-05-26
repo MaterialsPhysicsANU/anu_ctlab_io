@@ -1,9 +1,11 @@
+import re
 from abc import ABC, abstractmethod
 from copy import deepcopy
+from enum import Enum
 from importlib import import_module
 from pathlib import Path
 from types import ModuleType
-from typing import Any, Self, cast
+from typing import Any, Literal, Self, cast
 
 import dask.array as da
 import numpy as np
@@ -11,6 +13,28 @@ import numpy as np
 from anu_ctlab_io._datatype import DataType, StorageDType
 from anu_ctlab_io._parse_history import History, HistoryValue
 from anu_ctlab_io._voxel_properties import VoxelUnit
+
+
+class StorageFormat(str, Enum):
+    """Output format for :any:`Dataset.save`."""  # noqa: D400
+
+    NetCDF = "NetCDF"
+    Zarr = "zarr"
+
+
+def _extract_base_name_from_dataset_id(dataset_id: str) -> str:
+    """Strip old-format timestamp from dataset_id for filename generation.
+
+    Old format "20250314_012913_basename" → returns "basename"
+    New format "0-00000_gb1" → returns "0-00000_gb1" (no match, return as-is)
+
+    :param dataset_id: The dataset identifier
+    :return: The base name without timestamp prefix
+    """
+    match = re.match(r"^(\d{8}_\d{6})_(.+)$", dataset_id)
+    if match:
+        return match.group(2)  # Everything after second underscore
+    return dataset_id  # Not old format, use as-is
 
 
 class AbstractDataset(ABC):
@@ -22,7 +46,13 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def to_path(self, path: Path, *, filetype: str = "auto", **kwargs: Any) -> None:
+    def to_path(
+        self,
+        path: Path,
+        *,
+        filetype: StorageFormat | Literal["auto"] = "auto",
+        **kwargs: Any,
+    ) -> None:
         pass
 
     @property
@@ -122,7 +152,7 @@ class Dataset(AbstractDataset):
         cls,
         path: Path | str,
         *,
-        filetype: str = "auto",
+        filetype: StorageFormat | Literal["auto"] = "auto",
         parse_history: bool = True,
         **kwargs: Any,
     ) -> "Dataset":
@@ -172,7 +202,7 @@ class Dataset(AbstractDataset):
         self,
         path: Path | str,
         *,
-        filetype: str = "auto",
+        filetype: StorageFormat | Literal["auto"] = "auto",
         dataset_id: str | None = "auto",
         **kwargs: Any,
     ) -> None:
@@ -248,6 +278,66 @@ class Dataset(AbstractDataset):
             "Unable to determine output format from given `path`, perhaps specify `filetype`?",
             path,
         )
+
+    def save(
+        self,
+        suffix: str,
+        format: StorageFormat,
+        directory: Path | str = ".",
+        **kwargs: Any,
+    ) -> Path:
+        """Write dataset with auto-generated filename.
+
+        Generates a filename based on the dataset_id, stripping old-format timestamps
+        for cleaner paths while preserving them in file metadata for provenance.
+
+        :param suffix: Suffix to append to the base name.
+        :param format: Output format. :any:`StorageFormat.Zarr` writes OME-Zarr by default
+            (the latest supported version, currently 0.5). To override the OME-Zarr version or
+            write a plain Zarr array, pass ``ome_zarr_version`` as a keyword argument, e.g.
+            ``ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05`` or ``ome_zarr_version=None``.
+        :param directory: Directory to write the file to. Defaults to current directory.
+        :param kwargs: Additional arguments passed to the format writer.
+        :return: Path to the written file.
+        :raises ValueError: If dataset_id is not available (required for auto-path generation).
+
+        Example::
+
+            # Old format: "20250314_012913_tomoLoRes_SS"
+            # output filename: "tomoLoRes_SS_processed.nc"
+            # dataset_id in file: "20250314_012913_tomoLoRes_SS"
+            ds = Dataset.from_path("file.nc")
+            output_path = ds.save(suffix="_processed", format=StorageFormat.NetCDF)
+
+            # New format: "0-00000_gb1"
+            # Output filename: "0-00000_gb1__processed.zarr"
+            ds2 = Dataset.from_path("file2.nc")
+            output_path = ds2.save(suffix="__processed", format=StorageFormat.Zarr)
+        """
+        match format:
+            case StorageFormat.NetCDF:
+                extension = ".nc"
+            case StorageFormat.Zarr:
+                extension = ".zarr"
+
+        # Get base name (strip timestamp if old format)
+        if self._dataset_id is not None:
+            base_name = _extract_base_name_from_dataset_id(self._dataset_id)
+        else:
+            raise ValueError(
+                "Cannot auto-generate filename: dataset_id is not available. "
+                "Use to_path() with an explicit path instead."
+            )
+
+        # Construct filename using stripped basename
+        filename = f"{base_name}{suffix}{extension}"
+        output_path = Path(directory) / filename
+
+        # Write with ORIGINAL dataset_id preserved in metadata
+        # Use dataset_id="auto" to let to_path handle it
+        self.to_path(output_path, filetype=format, **kwargs)
+
+        return output_path
 
     @property
     def voxel_size(self) -> tuple[np.float32, np.float32, np.float32]:
