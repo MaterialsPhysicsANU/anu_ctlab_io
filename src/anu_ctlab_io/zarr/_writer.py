@@ -3,6 +3,7 @@
 import warnings
 from datetime import datetime
 from enum import Enum
+from math import prod
 from pathlib import Path
 from typing import Any, Literal
 
@@ -47,6 +48,7 @@ def dataset_to_zarr(
     chunks: ChunkSpec = "auto",
     shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
+    dimension_separator_threshold: int | None = 64,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to Zarr format.
@@ -85,6 +87,9 @@ def dataset_to_zarr(
         When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
+    :param dimension_separator_threshold: Use ``'.'`` as the chunk key dimension
+        separator when the array has fewer chunks than this threshold; otherwise use
+        ``'/'``. Must be a positive integer, or ``None`` to use the Zarr default of ``'/'``.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -136,8 +141,14 @@ def dataset_to_zarr(
             dataset, datatype, dataset_id, history, extra_attrs
         )
 
-    if create_array_kwargs is None:
-        create_array_kwargs = {}
+    create_array_kwargs = dict(create_array_kwargs or {})
+    if dimension_separator_threshold is not None:
+        # Use outer_shards for chunk key encoding calculation when sharding is
+        # enabled, since Zarr's chunk_key_encoding addresses shards, not inner chunks.
+        _key_chunks = outer_shards if outer_shards is not None else inner_chunks
+        create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
+            data_array.shape, _key_chunks, dimension_separator_threshold
+        )
 
     if ome_zarr_version is not None:
         _write_ome_zarr_group(
@@ -169,6 +180,18 @@ def _round_up_to_multiple(value: int, multiple: int) -> int:
             "The array likely has a zero-length axis, which is not supported."
         )
     return ((value + multiple - 1) // multiple) * multiple
+
+
+def _chunk_key_encoding(
+    shape: ChunkShape, chunks: ChunkShape, dimension_separator_threshold: int
+) -> dict[str, str]:
+    """Use flat chunk keys for small arrays and nested keys for larger arrays."""
+    num_chunks = prod(
+        (axis_size + chunk_size - 1) // chunk_size
+        for axis_size, chunk_size in zip(shape, chunks, strict=True)
+    )
+    separator = "." if num_chunks < dimension_separator_threshold else "/"
+    return {"name": "default", "separator": separator}
 
 
 def _resolve_zarr_layout(
