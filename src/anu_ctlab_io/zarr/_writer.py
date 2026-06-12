@@ -68,18 +68,18 @@ def dataset_to_zarr(
     :param chunk_size_mb: Target chunk size in MB for automatic chunking.
         Deprecated and ignored.
         Passing this emits a warning and leaves layout selection to ``chunks``/``shards``.
-    :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
+    :param chunks: Explicit chunk shape as a tuple shape (e.g., ``(10, 512, 512)``), int (target # of elements), or ``'auto'``.
         Can be provided on its own to write a non-sharded Zarr array, or together with ``shards`` to use the sharding codec.
         An integer specifies the target number of elements for an automatically derived layout.
-        ``'auto'`` uses the default target of ``32**3`` elements.
+        ``'auto'`` uses a default target corresponding to ``32**3`` or ``256**2`` elements.
         To write without sharding, pass ``shards=None`` explicitly.
-        A value of ``0`` means "span this axis" - the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
-    :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
+        A value of ``0`` in a shape tuple  means "span this axis" - the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
+    :param shards: Explicit shard shape as a tuple shape (e.g., ``(100, 512, 512)``), int (target # of elements), or ``'auto'``.
         May be provided together with an explicit ``chunks`` tuple.
         Providing an explicit shard shape with ``chunks='auto'`` is an error.
         An integer specifies the target number of elements for an automatically derived layout.
-        Use ``None`` to disable sharding, or ``'auto'`` to use the default target of ``512**3`` elements.
-        A value of ``0`` means "span the full array axis".
+        Use ``None`` to disable sharding, or ``'auto'`` to use the default target of ``512**3`` or ``8192**2`` elements.
+        A value of ``0`` in a shape tuple means "span the full array axis".
         When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
