@@ -75,7 +75,7 @@ def dataset_to_zarr(
         An integer specifies the target number of elements for an automatically derived layout.
         ``'auto'`` uses a default target corresponding to ``32**3`` or ``256**2`` elements.
         To write without sharding, pass ``shards=None`` explicitly.
-        A value of ``0`` in a shape tuple  means "span this axis" - the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
+        A value of ``0`` in a shape tuple means "span this axis" — the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
     :param shards: Explicit shard shape as a tuple shape (e.g., ``(100, 512, 512)``), int (target # of elements), or ``'auto'``.
         May be provided together with an explicit ``chunks`` tuple.
         Providing an explicit shard shape with ``chunks='auto'`` is an error.
