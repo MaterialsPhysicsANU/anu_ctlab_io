@@ -1,12 +1,12 @@
 """Write data to the ANU CTLab zarr data format."""
 
+import warnings
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import dask.array as da
-import numpy as np
 import zarr
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
@@ -19,6 +19,13 @@ from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
+_DEFAULT_CHUNK_ELEMENTS = max(256**2, 32**3)
+_DEFAULT_SHARD_ELEMENTS = max(8192**2, 512**3)
+
+type ChunkShape = tuple[int, ...]
+type ChunkSpec = ChunkShape | int | Literal["auto"]
+type ShardSpec = ChunkShape | int | Literal["auto"] | None
+
 
 class OMEZarrVersion(Enum):
     """OME-Zarr specification version to use when writing."""
@@ -26,21 +33,27 @@ class OMEZarrVersion(Enum):
     v05 = "0.5"
 
 
+# TODO: 2.0.0 Force kwargs-only for optional parameters
 def dataset_to_zarr(
     dataset: Dataset,
     path: Path | str,
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     ome_zarr_version: OMEZarrVersion | None = OMEZarrVersion.v05,
-    max_shard_size_mb: float = 1000.0,
+    max_shard_size_mb: float
+    | None = None,  # TODO: 2.0.0 Remove this deprecated parameter
     history: History | None = None,
-    chunk_size_mb: float = 10.0,
-    chunks: tuple[int, ...] | None = None,
-    shards: tuple[int, ...] | None = None,
+    chunk_size_mb: float | None = None,  # TODO: 2.0.0 Remove this deprecated parameter
+    chunks: ChunkSpec = "auto",
+    shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to Zarr format.
+
+    By default, chunks and shards use power-of-two square or cubic shapes targeting
+    ``32**3`` and ``512**3`` elements respectively. Shapes are trimmed to the array
+    dimensions, and shards are rounded up to chunk multiples.
 
     :param dataset: The :any:`Dataset` to write.
     :param path: Path to write the Zarr store.
@@ -49,19 +62,27 @@ def dataset_to_zarr(
     :param ome_zarr_version: OME-Zarr specification version to use.
         Set to :any:`OMEZarrVersion.v05` (default) to write OME-Zarr V0.5 group format.
         Set to ``None`` to write a simple Zarr V3 array with mango metadata.
-    :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding. Default 1000 MB (1 GB).
-        Shards group multiple chunks into indexed files for better filesystem performance.
-        Mutually exclusive with ``chunks`` and ``shards`` parameters.
-    :param history: Dictionary of history entries to add. Keys should be identifiers,
-        values are history strings.
-    :param chunk_size_mb: Target chunk size in MB for automatic chunking. Default 10.0 MB.
-        Mutually exclusive with ``chunks`` and ``shards`` parameters.
-    :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
-        Must be provided together with ``shards``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
-        When provided, user is responsible for ensuring valid chunk/shard alignment.
-    :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
-        Must be provided together with ``chunks``. Cannot be used with ``chunk_size_mb`` or ``max_shard_size_mb``.
-        When provided, user is responsible for ensuring valid chunk/shard alignment.
+    :param max_shard_size_mb: Maximum shard size in MB for Zarr v3 sharding.
+        Deprecated and ignored.
+        Passing this emits a warning and leaves layout selection to ``chunks``/``shards``.
+    :param history: Dictionary of history entries to add.
+        Keys should be identifiers, values are history strings.
+    :param chunk_size_mb: Target chunk size in MB for automatic chunking.
+        Deprecated and ignored.
+        Passing this emits a warning and leaves layout selection to ``chunks``/``shards``.
+    :param chunks: Explicit chunk shape as a tuple shape (e.g., ``(10, 512, 512)``), int (target # of elements), or ``'auto'``.
+        Can be provided on its own to write a non-sharded Zarr array, or together with ``shards`` to use the sharding codec.
+        An integer specifies the target number of elements for an automatically derived layout.
+        ``'auto'`` uses a default target corresponding to ``32**3`` or ``256**2`` elements.
+        To write without sharding, pass ``shards=None`` explicitly.
+        A value of ``0`` in a shape tuple means "span this axis" — the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
+    :param shards: Explicit shard shape as a tuple shape (e.g., ``(100, 512, 512)``), int (target # of elements), or ``'auto'``.
+        May be provided together with an explicit ``chunks`` tuple.
+        Providing an explicit shard shape with ``chunks='auto'`` is an error.
+        An integer specifies the target number of elements for an automatically derived layout.
+        Use ``None`` to disable sharding, or ``'auto'`` to use the default target of ``512**3`` or ``8192**2`` elements.
+        A value of ``0`` in a shape tuple means "span the full array axis".
+        When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
     :param extra_attrs: Additional attributes to include in mango metadata.
@@ -83,35 +104,31 @@ def dataset_to_zarr(
         dataset_id = f"{timestamp}_{datatype}"
 
     data_array = dataset.data
-    storage_dtype = data_array.dtype
 
-    shape = data_array.shape
-
-    chunks_provided = chunks is not None
-    shards_provided = shards is not None
-    sizes_provided = (chunk_size_mb != 10.0) or (max_shard_size_mb != 1000.0)
-
-    if chunks_provided != shards_provided:
-        raise ValueError(
-            "chunks and shards must both be provided or both be None. "
-            f"Got chunks={'provided' if chunks_provided else 'None'}, "
-            f"shards={'provided' if shards_provided else 'None'}."
+    ignored_size_args = ", ".join(
+        name
+        for name, value in (
+            ("chunk_size_mb", chunk_size_mb),
+            ("max_shard_size_mb", max_shard_size_mb),
+        )
+        if value is not None
+    )
+    if ignored_size_args:
+        verb = "are" if "," in ignored_size_args else "is"
+        warnings.warn(
+            f"{ignored_size_args} {verb} ignored when writing Zarr. Use chunks/shards or 'auto' instead.",
+            UserWarning,
+            stacklevel=2,
         )
 
-    if chunks_provided and sizes_provided:
-        raise ValueError(
-            "Cannot specify both chunks/shards and chunk_size_mb/max_shard_size_mb. "
-            "Use either shape-based parameters (chunks and shards) or "
-            "size-based parameters (chunk_size_mb and max_shard_size_mb), not both."
-        )
+    if isinstance(shards, tuple) and chunks == "auto":
+        raise ValueError("shards cannot be provided without explicit chunks")
 
-    if chunks is not None and shards is not None:
-        inner_chunks = chunks
-        outer_shards = shards
-    else:
-        inner_chunks, outer_shards = _calculate_chunks_and_shards(
-            shape, storage_dtype, chunk_size_mb, max_shard_size_mb
-        )
+    inner_chunks, outer_shards = _resolve_zarr_layout(
+        shape=data_array.shape,
+        chunks=chunks,
+        shards=shards,
+    )
 
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:
@@ -145,57 +162,130 @@ def dataset_to_zarr(
         )
 
 
-def _calculate_chunks_and_shards(
-    shape: tuple[int, ...],
-    dtype: np.dtype[Any],
-    chunk_size_mb: float,
-    max_shard_size_mb: float,
-) -> tuple[tuple[int, ...], tuple[int, ...]]:
-    """Calculate inner chunks and outer shards for Zarr v3 sharding.
+def _round_up_to_multiple(value: int, multiple: int) -> int:
+    if multiple == 0:
+        raise ValueError(
+            f"Cannot round up to a multiple of zero (value={value}). "
+            "The array likely has a zero-length axis, which is not supported."
+        )
+    return ((value + multiple - 1) // multiple) * multiple
 
-    In Zarr v3:
-    - inner_chunks (chunks param) = subdivisions within each shard file
-    - outer_shards (shards param) = how data is split into shard files
 
-    This algorithm:
-    - Keeps xy planes intact (critical for CT data access patterns)
-    - Makes outer shards multiples of inner chunks for alignment
+def _resolve_zarr_layout(
+    *,
+    shape: ChunkShape,
+    chunks: ChunkSpec,
+    shards: ShardSpec,
+) -> tuple[ChunkShape, ChunkShape | None]:
+    """Resolve the final Zarr chunk/shard layout from the supported writer inputs.
 
-    :param shape: Array shape (z, y, x).
-    :param dtype: Array data type.
-    :param chunk_size_mb: Target size for inner chunks in MB.
-    :param max_shard_size_mb: Maximum shard size in MB.
-    :return: Tuple of (inner_chunks, outer_shards).
+    The resolution order is:
+    - explicit ``chunks``/``shards`` shapes when provided
+    - integer element targets and ``'auto'`` sentinels, which derive power-of-two
+      square or cubic layouts
+
+    Explicit shapes also support ``0`` as a sentinel. In ``chunks``, ``0`` means span
+    the full array axis for unsharded writes, or the full shard axis when ``shards`` is
+    provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
+    of the resolved chunk size so the sharding codec remains valid.
     """
-    zdim, ydim, xdim = shape
-    bytes_per_element = np.dtype(dtype).itemsize
-    bytes_per_slice = ydim * xdim * bytes_per_element
+    if chunks == "auto":
+        chunks = _DEFAULT_CHUNK_ELEMENTS
+    if isinstance(chunks, int):
+        chunks = _auto_shape(shape, chunks)
+    if shards == "auto":
+        shards = _DEFAULT_SHARD_ELEMENTS
+    if isinstance(shards, int):
+        shards = _auto_shards(shape, chunks, shards)
 
-    # Calculate inner chunk size (subdivisions within shards)
-    inner_target_bytes = chunk_size_mb * 1024 * 1024
-    z_inner = max(1, int(inner_target_bytes / bytes_per_slice))
-    z_inner = min(z_inner, zdim)
+    return _normalize_explicit_shapes(shape, chunks, shards)
 
-    inner_chunks = (z_inner, ydim, xdim)
 
-    # Calculate outer shard size (how data is split into files)
-    shard_target_bytes = max_shard_size_mb * 1024 * 1024
-    z_outer = max(1, int(shard_target_bytes / bytes_per_slice))
-    z_outer = min(z_outer, zdim)
+def _normalize_explicit_shapes(
+    shape: ChunkShape,
+    chunks: ChunkShape,
+    shards: ChunkShape | None,
+) -> tuple[ChunkShape, ChunkShape | None]:
+    """Validate explicit layout shapes and expand any zero-valued span sentinels.
 
-    # Ensure outer shards are at least as large as inner chunks
-    # and are a multiple of inner chunks for proper alignment
-    if z_outer < z_inner:
-        z_outer = z_inner
-    else:
-        # Make outer a multiple of inner
-        multiple = max(1, z_outer // z_inner)
-        z_outer = z_inner * multiple
-        z_outer = min(z_outer, zdim)
+    A zero chunk size spans the corresponding shard axis when sharding is enabled,
+    otherwise it spans the full array axis. A zero shard size spans the array axis,
+    rounded up to a chunk multiple so zarr's sharding codec accepts the layout.
+    """
+    if len(chunks) != len(shape):
+        raise ValueError(
+            f"chunks must have the same number of dimensions as the array shape. Got chunks={chunks}, shape={shape}."
+        )
+    if shards is not None and len(shards) != len(shape):
+        raise ValueError(
+            f"shards must have the same number of dimensions as the array shape. Got shards={shards}, shape={shape}."
+        )
 
-    outer_shards = (z_outer, ydim, xdim)
+    chunk_span = (
+        tuple(
+            axis_size if shard_size == 0 else shard_size
+            for shard_size, axis_size in zip(shards, shape, strict=True)
+        )
+        if shards is not None
+        else shape
+    )
+    resolved_chunks = tuple(
+        axis_size if chunk_size == 0 else chunk_size
+        for chunk_size, axis_size in zip(chunks, chunk_span, strict=True)
+    )
 
-    return inner_chunks, outer_shards
+    resolved_shards: ChunkShape | None = None
+    if shards is not None:
+        resolved_shards = tuple(
+            _round_up_to_multiple(axis_size, chunk_size)
+            if shard_size == 0
+            else shard_size
+            for shard_size, axis_size, chunk_size in zip(
+                shards, shape, resolved_chunks, strict=True
+            )
+        )
+
+    return resolved_chunks, resolved_shards
+
+
+def _power_of_two_edge(elements: int, dimensions: int) -> int:
+    """Return the power-of-two edge whose volume is closest to the target."""
+    if isinstance(elements, bool) or elements <= 0:
+        raise ValueError(f"elements must be a positive integer. Got {elements}.")
+
+    edge = 1
+    while (edge * 2) ** dimensions <= elements:
+        edge *= 2
+    larger_edge = edge * 2
+    if larger_edge**dimensions - elements < elements - edge**dimensions:
+        return larger_edge
+    return edge
+
+
+def _auto_shape(shape: ChunkShape, elements: int) -> ChunkShape:
+    """Return a power-of-two square or cubic shape, trimmed to the array."""
+    is_2d = len(shape) == 3 and shape[0] == 1
+    dimensions = 2 if is_2d else len(shape)
+    edge = _power_of_two_edge(elements, dimensions)
+    return tuple(
+        axis_size if is_2d and axis == 0 else min(edge, axis_size)
+        for axis, axis_size in enumerate(shape)
+    )
+
+
+def _auto_shards(
+    shape: ChunkShape,
+    chunks: ChunkShape,
+    elements: int,
+) -> ChunkShape:
+    """Return auto shard dimensions trimmed to the array and aligned to chunks."""
+    target = _auto_shape(shape, elements)
+    return tuple(
+        shard_size
+        if chunk_size == 0
+        else _round_up_to_multiple(max(chunk_size, shard_size), chunk_size)
+        for shard_size, chunk_size in zip(target, chunks, strict=True)
+    )
 
 
 def _build_mango_attrs(
@@ -235,17 +325,19 @@ def _write_ome_zarr_group(
     data_array: da.Array,
     path: Path,
     dataset: Dataset,
-    inner_chunks: tuple[int, ...],
-    outer_shards: tuple[int, ...],
+    inner_chunks: ChunkShape,
+    outer_shards: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
 ) -> None:
-    """Write data as an OME-Zarr group with Zarr v3 sharding.
+    """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
     In Zarr v3 sharding:
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
+
+    If ``outer_shards`` is ``None``, the array is written without the sharding codec.
     """
 
     if not str(path).endswith(".zarr"):
@@ -321,14 +413,14 @@ def _write_zarr_array(
     data_array: da.Array,
     path: Path,
     dataset: Dataset,
-    inner_chunks: tuple[int, ...],
-    outer_shards: tuple[int, ...],
+    inner_chunks: ChunkShape,
+    outer_shards: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
 ) -> None:
-    """Write data as a simple Zarr V3 array with mango metadata and sharding.
+    """Write data as a simple Zarr V3 array with mango metadata.
 
-    In Zarr v3 sharding:
+    When ``outer_shards`` is provided, Zarr v3 sharding is used:
     - inner_chunks (chunks param) = subdivisions within each shard file
     - outer_shards (shards param) = how data is split into shard files
     """
@@ -346,8 +438,8 @@ def _write_zarr_array(
     array = zarr.create_array(
         path,
         shape=data_array.shape,
-        chunks=inner_chunks,  # Inner chunk subdivisions
-        shards=outer_shards,  # Outer shard size
+        chunks=inner_chunks,
+        shards=outer_shards,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
         overwrite=True,
