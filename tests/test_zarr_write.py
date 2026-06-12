@@ -5,10 +5,10 @@ from pathlib import Path
 import dask.array as da
 import numpy as np
 import pytest
-from PIL import Image
 
 try:
     from dask.array.core import PerformanceWarning
+    from PIL import Image
 
     import anu_ctlab_io.zarr
     from anu_ctlab_io.zarr import OMEZarrVersion
