@@ -87,9 +87,9 @@ def dataset_to_zarr(
         When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
         For example, to set compression: ``create_array_kwargs={'compressors': [ZstdCodec(level=5)]}``.
-    :param dimension_separator_threshold: Use ``'.'`` as the chunk key dimension
-        separator when the array has fewer chunks than this threshold; otherwise use
-        ``'/'``. Must be a positive integer, or ``None`` to use the Zarr default of ``'/'``.
+    :param dimension_separator_threshold: Use ``'/'`` as the chunk key dimension
+        separator when the number of chunks exceeds this threshold; otherwise use
+        ``'.'``. ``None`` uses the Zarr default of ``'/'``.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -190,7 +190,7 @@ def _chunk_key_encoding(
         (axis_size + chunk_size - 1) // chunk_size
         for axis_size, chunk_size in zip(shape, chunks, strict=True)
     )
-    separator = "." if num_chunks < dimension_separator_threshold else "/"
+    separator = "/" if num_chunks > dimension_separator_threshold else "."
     return {"name": "default", "separator": separator}
 
 

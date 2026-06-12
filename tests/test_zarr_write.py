@@ -83,15 +83,17 @@ def test_write_single_zarr_array(_make_dataset):
     ("ome_zarr_version", "num_chunks", "expected_separator"),
     [
         (None, 63, "."),
-        (None, 64, "/"),
+        (None, 64, "."),
+        (None, 65, "/"),
         (OMEZarrVersion.v05, 63, "."),
-        (OMEZarrVersion.v05, 64, "/"),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
     ],
 )
 def test_chunk_key_separator_depends_on_number_of_chunks(
     _make_dataset, ome_zarr_version, num_chunks, expected_separator
 ):
-    """Use flat chunk keys only when the array has fewer than 64 chunks."""
+    """Use flat chunk keys when the number of chunks does not exceed the threshold."""
     dataset, _ = _make_dataset((num_chunks, 1, 1), chunks=(1, 1, 1))
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -119,9 +121,11 @@ def test_chunk_key_separator_depends_on_number_of_chunks(
     ("ome_zarr_version", "num_shards", "expected_separator"),
     [
         (None, 63, "."),
-        (None, 64, "/"),
+        (None, 64, "."),
+        (None, 65, "/"),
         (OMEZarrVersion.v05, 63, "."),
-        (OMEZarrVersion.v05, 64, "/"),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
     ],
 )
 def test_chunk_key_separator_uses_shards_when_sharded(
