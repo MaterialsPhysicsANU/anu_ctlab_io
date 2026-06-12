@@ -33,7 +33,7 @@ class OMEZarrVersion(Enum):
     v05 = "0.5"
 
 
-# TODO: 2.0.0 Force kwargs-only for optional paramrs
+# TODO: 2.0.0 Force kwargs-only for optional parameters
 def dataset_to_zarr(
     dataset: Dataset,
     path: Path | str,
