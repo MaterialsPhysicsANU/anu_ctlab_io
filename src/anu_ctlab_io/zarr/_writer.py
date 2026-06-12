@@ -33,15 +33,17 @@ class OMEZarrVersion(Enum):
     v05 = "0.5"
 
 
+# TODO: 2.0.0 Force kwargs-only for optional paramrs
 def dataset_to_zarr(
     dataset: Dataset,
     path: Path | str,
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
     ome_zarr_version: OMEZarrVersion | None = OMEZarrVersion.v05,
-    max_shard_size_mb: float | None = None,
+    max_shard_size_mb: float
+    | None = None,  # TODO: 2.0.0 Remove this deprecated parameter
     history: History | None = None,
-    chunk_size_mb: float | None = None,
+    chunk_size_mb: float | None = None,  # TODO: 2.0.0 Remove this deprecated parameter
     chunks: ChunkSpec = "auto",
     shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
