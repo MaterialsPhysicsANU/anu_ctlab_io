@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -9,14 +10,11 @@ try:
     from dask.array.core import PerformanceWarning
 
     import anu_ctlab_io.zarr
-
-    _HAS_ZARR = True
+    from anu_ctlab_io.zarr import OMEZarrVersion
 except ImportError:
-    _HAS_ZARR = False
+    pytest.skip("Requires 'zarr' extra", allow_module_level=True)
 
 import anu_ctlab_io
-
-pytestmark = pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 
 
 def test_write_single_ome_zarr(_make_dataset):
@@ -32,7 +30,7 @@ def test_write_single_ome_zarr(_make_dataset):
             dataset,
             output_path,
             dataset_id="test_dataset",
-            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
+            ome_zarr_version=OMEZarrVersion.v05,
         )
 
         # Verify file exists
@@ -79,6 +77,120 @@ def test_write_single_zarr_array(_make_dataset):
         assert np.allclose(read_dataset.voxel_size, dataset.voxel_size)
         assert np.array_equal(read_dataset.data.compute(), data.compute())
         assert read_dataset.dimension_names == dataset.dimension_names
+
+
+@pytest.mark.parametrize(
+    ("ome_zarr_version", "num_chunks", "expected_separator"),
+    [
+        (None, 63, "."),
+        (None, 64, "."),
+        (None, 65, "/"),
+        (OMEZarrVersion.v05, 63, "."),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
+    ],
+)
+def test_chunk_key_separator_depends_on_number_of_chunks(
+    _make_dataset, ome_zarr_version, num_chunks, expected_separator
+):
+    """Use flat chunk keys when the number of chunks does not exceed the threshold."""
+    dataset, _ = _make_dataset((num_chunks, 1, 1), chunks=(1, 1, 1))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "separator.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=ome_zarr_version,
+            chunks=(1, 1, 1),
+            shards=None,
+            slice_thumbnails=False,
+        )
+
+        metadata_path = output_path / "zarr.json"
+        if ome_zarr_version is not None:
+            metadata_path = output_path / "0" / "zarr.json"
+        metadata = json.loads(metadata_path.read_text())
+        assert (
+            metadata["chunk_key_encoding"]["configuration"]["separator"]
+            == expected_separator
+        )
+
+
+@pytest.mark.parametrize(
+    ("ome_zarr_version", "num_shards", "expected_separator"),
+    [
+        (None, 63, "."),
+        (None, 64, "."),
+        (None, 65, "/"),
+        (OMEZarrVersion.v05, 63, "."),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
+    ],
+)
+def test_chunk_key_separator_uses_shards_when_sharded(
+    _make_dataset, ome_zarr_version, num_shards, expected_separator
+):
+    """Use flat chunk keys based on number of shards, not inner chunks, when sharded."""
+    # Create an array where inner chunks would be >64 but shards are <64.
+    dataset, _ = _make_dataset((num_shards, 1, 1), chunks=(1, 1, 1))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "separator_sharded.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=ome_zarr_version,
+            chunks=(1, 1, 1),
+            shards=(1, 1, 1),
+            slice_thumbnails=False,
+        )
+
+        metadata_path = output_path / "zarr.json"
+        if ome_zarr_version is not None:
+            metadata_path = output_path / "0" / "zarr.json"
+        metadata = json.loads(metadata_path.read_text())
+        assert (
+            metadata["chunk_key_encoding"]["configuration"]["separator"]
+            == expected_separator
+        )
+
+
+def test_dimension_separator_threshold_can_be_overridden(_make_dataset, tmp_path):
+    """The dimension separator threshold can be configured by the caller."""
+    dataset, _ = _make_dataset((20, 1, 1), chunks=(1, 1, 1))
+    output_path = tmp_path / "separator.zarr"
+
+    dataset.to_path(
+        output_path,
+        ome_zarr_version=None,
+        chunks=(1, 1, 1),
+        shards=None,
+        slice_thumbnails=False,
+        dimension_separator_threshold=21,
+    )
+
+    metadata = json.loads((output_path / "zarr.json").read_text())
+    assert metadata["chunk_key_encoding"]["configuration"]["separator"] == "."
+
+
+def test_none_dimension_separator_threshold_uses_zarr_default(_make_dataset, tmp_path):
+    """A None threshold leaves chunk key encoding selection to Zarr."""
+    dataset, _ = _make_dataset((1, 1, 1), chunks=(1, 1, 1))
+    output_path = tmp_path / "separator.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        ome_zarr_version=None,
+        chunks=(1, 1, 1),
+        shards=None,
+        slice_thumbnails=False,
+        dimension_separator_threshold=None,
+    )
+
+    metadata = json.loads((output_path / "zarr.json").read_text())
+    assert metadata["chunk_key_encoding"]["configuration"]["separator"] == "/"
 
 
 def test_write_without_datatype(_make_dataset):
@@ -179,7 +291,7 @@ def test_roundtrip_ome_zarr():
             output_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="ome_roundtrip_test",
-            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
+            ome_zarr_version=OMEZarrVersion.v05,
         )
 
         # Read it back
