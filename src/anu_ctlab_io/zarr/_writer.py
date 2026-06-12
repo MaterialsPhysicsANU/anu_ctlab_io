@@ -19,14 +19,12 @@ from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
-_DEFAULT_3D_ZARR_CHUNKS = (32, 32, 32)
-_DEFAULT_3D_ZARR_SHARDS = (32, 0, 0)
-_DEFAULT_2D_ZARR_CHUNKS = (1, 256, 256)
-_DEFAULT_2D_ZARR_SHARDS = (1, 1024, 1024)
+_DEFAULT_CHUNK_ELEMENTS = max(256**2, 32**3)
+_DEFAULT_SHARD_ELEMENTS = max(8192**2, 512**3)
 
 type ChunkShape = tuple[int, ...]
-type ChunkSpec = ChunkShape | Literal["auto"]
-type ShardSpec = ChunkShape | Literal["auto"] | None
+type ChunkSpec = ChunkShape | int | Literal["auto"]
+type ShardSpec = ChunkShape | int | Literal["auto"] | None
 
 
 class OMEZarrVersion(Enum):
@@ -51,12 +49,9 @@ def dataset_to_zarr(
 ) -> None:
     """Write a :any:`Dataset` to Zarr format.
 
-    By default, 3D data is written with ``(32, 32, 32)`` chunks and
-    ``(32, 0, 0)`` shard shapes, where ``0`` means span the array axis rounded up
-    to a chunk multiple. Single-slice data uses ``(1, 256, 256)`` chunks and
-    ``(1, 1024, 1024)`` shard shapes. Default chunks are clamped to the array
-    shape, and default shards are clamped to avoid exceeding the array size
-    needlessly while still remaining multiples of the chunk shape.
+    By default, chunks and shards use power-of-two square or cubic shapes targeting
+    ``32**3`` and ``512**3`` elements respectively. Shapes are trimmed to the array
+    dimensions, and shards are rounded up to chunk multiples.
 
     :param dataset: The :any:`Dataset` to write.
     :param path: Path to write the Zarr store.
@@ -75,13 +70,15 @@ def dataset_to_zarr(
         Passing this emits a warning and leaves layout selection to ``chunks``/``shards``.
     :param chunks: Explicit chunk shape as a tuple (e.g., ``(10, 512, 512)``).
         Can be provided on its own to write a non-sharded Zarr array, or together with ``shards`` to use the sharding codec.
-        ``'auto'`` uses the default chunk layout described above.
+        An integer specifies the target number of elements for an automatically derived layout.
+        ``'auto'`` uses the default target of ``32**3`` elements.
         To write without sharding, pass ``shards=None`` explicitly.
         A value of ``0`` means "span this axis" - the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
     :param shards: Explicit shard shape as a tuple (e.g., ``(100, 512, 512)``).
         May be provided together with an explicit ``chunks`` tuple.
-        Providing an explicit shard shape without also providing an explicit chunk shape is an error, including when ``chunks='auto'``.
-        Use ``None`` to disable sharding, or ``'auto'`` to use the default shard layout described above.
+        Providing an explicit shard shape with ``chunks='auto'`` is an error.
+        An integer specifies the target number of elements for an automatically derived layout.
+        Use ``None`` to disable sharding, or ``'auto'`` to use the default target of ``512**3`` elements.
         A value of ``0`` means "span the full array axis".
         When provided, the user is responsible for ensuring shard shapes are evenly divisible by chunk shapes.
     :param create_array_kwargs: Additional keyword arguments to pass to zarr.create_array().
@@ -182,21 +179,22 @@ def _resolve_zarr_layout(
 
     The resolution order is:
     - explicit ``chunks``/``shards`` shapes when provided
-    - ``'auto'`` sentinels, which use the library default layout of ``(32, 32, 32)``
-      subchunks with X/Y-spanning shards instead of zarr-python's automatic layout
-      or, for ``z == 1`` data, ``(1, 256, 256)``-style in-plane chunks constrained by the array shape
+    - integer element targets and ``'auto'`` sentinels, which derive power-of-two
+      square or cubic layouts
 
     Explicit shapes also support ``0`` as a sentinel. In ``chunks``, ``0`` means span
     the full array axis for unsharded writes, or the full shard axis when ``shards`` is
     provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
     of the resolved chunk size so the sharding codec remains valid.
     """
-    anu_chunks, anu_shards = _default_chunks_and_shards(shape)
-
     if chunks == "auto":
-        chunks = anu_chunks
+        chunks = _DEFAULT_CHUNK_ELEMENTS
+    if isinstance(chunks, int):
+        chunks = _auto_shape(shape, chunks)
     if shards == "auto":
-        shards = anu_shards
+        shards = _DEFAULT_SHARD_ELEMENTS
+    if isinstance(shards, int):
+        shards = _auto_shards(shape, chunks, shards)
 
     return _normalize_explicit_shapes(shape, chunks, shards)
 
@@ -248,40 +246,44 @@ def _normalize_explicit_shapes(
     return resolved_chunks, resolved_shards
 
 
-def _default_chunks_and_shards(
-    shape: ChunkShape,
-) -> tuple[ChunkShape, ChunkShape]:
-    """Return the library default chunk and shard layout for a 3D CT volume.
+def _power_of_two_edge(elements: int, dimensions: int) -> int:
+    """Return the power-of-two edge whose volume is closest to the target."""
+    if isinstance(elements, bool) or elements <= 0:
+        raise ValueError(f"elements must be a positive integer. Got {elements}.")
 
-    Volumes use 32-cubed chunks by default, while single-slice data uses larger
-    in-plane chunks. Shards keep one chunk along z and span each in-plane axis,
-    rounded up to a chunk multiple for valid zarr sharding.
-    """
-    default_chunks, default_shards = (
-        (_DEFAULT_2D_ZARR_CHUNKS, _DEFAULT_2D_ZARR_SHARDS)
-        if shape[0] == 1
-        else (_DEFAULT_3D_ZARR_CHUNKS, _DEFAULT_3D_ZARR_SHARDS)
+    edge = 1
+    while (edge * 2) ** dimensions <= elements:
+        edge *= 2
+    larger_edge = edge * 2
+    if larger_edge**dimensions - elements < elements - edge**dimensions:
+        return larger_edge
+    return edge
+
+
+def _auto_shape(shape: ChunkShape, elements: int) -> ChunkShape:
+    """Return a power-of-two square or cubic shape, trimmed to the array."""
+    is_2d = len(shape) == 3 and shape[0] == 1
+    dimensions = 2 if is_2d else len(shape)
+    edge = _power_of_two_edge(elements, dimensions)
+    return tuple(
+        axis_size if is_2d and axis == 0 else min(edge, axis_size)
+        for axis, axis_size in enumerate(shape)
     )
-    inner_chunks = tuple(
-        min(chunk_size, axis_size)
-        for chunk_size, axis_size in zip(default_chunks, shape, strict=True)
+
+
+def _auto_shards(
+    shape: ChunkShape,
+    chunks: ChunkShape,
+    elements: int,
+) -> ChunkShape:
+    """Return auto shard dimensions trimmed to the array and aligned to chunks."""
+    target = _auto_shape(shape, elements)
+    return tuple(
+        shard_size
+        if chunk_size == 0
+        else _round_up_to_multiple(max(chunk_size, shard_size), chunk_size)
+        for shard_size, chunk_size in zip(target, chunks, strict=True)
     )
-    clamped_shards = tuple(
-        0
-        if shard_size == 0
-        else max(
-            chunk_size,
-            min(shard_size, _round_up_to_multiple(axis_size, chunk_size)),
-        )
-        for shard_size, axis_size, chunk_size in zip(
-            default_shards, shape, inner_chunks, strict=True
-        )
-    )
-    resolved_chunks, resolved_shards = _normalize_explicit_shapes(
-        shape, inner_chunks, clamped_shards
-    )
-    assert resolved_shards is not None
-    return resolved_chunks, resolved_shards
 
 
 def _build_mango_attrs(
