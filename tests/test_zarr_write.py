@@ -1038,7 +1038,7 @@ def test_write_full_slice_thumbnails_deduplicates_same_size(_make_dataset, tmp_p
     root = zarr.open_group(output_path, zarr_format=3)
     assert len(root.attrs["thumbnails"]) == 3
     assert all(
-        entry["attributes"]["roles"] == ["thumbnail", "full_resolution"]
+        entry["attributes"]["full_resolution"] is True
         for entry in root.attrs["thumbnails"]
     )
     assert len(list((output_path / "thumbnails").glob("*.jpg"))) == 3

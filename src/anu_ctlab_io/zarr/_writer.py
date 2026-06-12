@@ -593,27 +593,31 @@ def _write_thumbnails(
 
         thumbnail = Image.fromarray(grayscale)
         thumbnail.thumbnail((512, 512))
-        images = [(thumbnail, ["thumbnail"])]
+        images = [(thumbnail, False)]  # False = downsampled thumbnail
         full_image = Image.fromarray(grayscale)
         if include_full:
             if full_image.size == thumbnail.size:
-                images[0][1].append("full_resolution")
+                images[0] = (thumbnail, True)  # Thumbnail is already full resolution
             else:
-                images.append((full_image, ["full_resolution"]))
+                images.append((full_image, True))
 
-        for image, roles in images:
+        for image, full_resolution in images:
             image_path = (
                 f"thumbnails/middle_{plane_name}_{image.width}x{image.height}.jpg"
             )
             _write_image(node, image_path, image, "JPEG", quality=85)
+            desc_suffix = "" if full_resolution else " (downsampled)"
             entries.append(
                 {
                     "width": image.width,
                     "height": image.height,
                     "media_type": "image/jpeg",
                     "path": image_path,
-                    "description": f"Middle {plane_name.upper()} slice",
-                    "attributes": {**generation_attrs, "roles": roles},
+                    "description": f"Middle {plane_name.upper()} slice{desc_suffix}",
+                    "attributes": {
+                        **generation_attrs,
+                        "full_resolution": full_resolution,
+                    },
                 }
             )
 
