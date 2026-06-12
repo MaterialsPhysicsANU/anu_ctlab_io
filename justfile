@@ -8,3 +8,6 @@ test:
 
 bench:
     uv run --group bench --all-extras pytest benches/ -v
+
+cli *args:
+    uv run --package anu-ctlab-io-cli anu-ctlab-io {{args}}
