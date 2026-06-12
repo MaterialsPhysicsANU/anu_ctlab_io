@@ -979,7 +979,7 @@ def test_write_slice_thumbnails(_make_dataset, tmp_path, ome_zarr_version):
     node = zarr.open(output_path, zarr_format=3)
     attrs = dict(node.attrs)
     assert any(
-        convention["uuid"] == "49326c01-1180-4743-b15f-f7157038a6ab"
+        convention["uuid"] == "38a1d2ca-5f40-4ee2-b4d5-5e87bfeb7549"
         for convention in attrs["zarr_conventions"]
     )
     assert len(attrs["thumbnails"]) == 3
@@ -1003,8 +1003,8 @@ def test_write_slice_thumbnails(_make_dataset, tmp_path, ome_zarr_version):
             assert thumbnail.mode == "L"
             assert thumbnail.size == (plane.shape[1], plane.shape[0])
 
-    metadata_by_path = {entry["path"]: entry for entry in attrs["thumbnails"]}
-    xy_metadata = metadata_by_path[f"thumbnails/middle_xy_{shape[2]}x{shape[1]}.jpg"]
+    metadata_by_uri = {entry["uri"]: entry for entry in attrs["thumbnails"]}
+    xy_metadata = metadata_by_uri[f"thumbnails/middle_xy_{shape[2]}x{shape[1]}.jpg"]
     assert xy_metadata["width"] == shape[2]
     assert xy_metadata["height"] == shape[1]
     assert xy_metadata["attributes"]["slice_axis"] == "z"
@@ -1090,11 +1090,11 @@ def test_write_thumbnails_excludes_invalid_values(tmp_path):
     anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
 
     array = zarr.open_array(output_path, zarr_format=3)
-    metadata = {entry["path"]: entry for entry in array.attrs["thumbnails"]}[
+    metadata = {entry["uri"]: entry for entry in array.attrs["thumbnails"]}[
         "thumbnails/middle_xy_5x4.jpg"
     ]
     assert metadata["attributes"]["upper_value"] < 100
-    with Image.open(output_path / metadata["path"]) as diagnostic:
+    with Image.open(output_path / metadata["uri"]) as diagnostic:
         pixels = np.asarray(diagnostic)
         assert pixels[0, 0] < 10
         assert pixels[0, 1] < 10

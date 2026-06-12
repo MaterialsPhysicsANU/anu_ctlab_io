@@ -33,9 +33,9 @@ type ChunkSpec = ChunkShape | int | Literal["auto"]
 type ShardSpec = ChunkShape | int | Literal["auto"] | None
 
 _THUMBNAILS_CONVENTION = {
-    "schema_url": "https://raw.githubusercontent.com/zarr-conventions/thumbnails/refs/tags/v1/schema.json",
-    "spec_url": "https://github.com/zarr-conventions/thumbnails/blob/v1/README.md",
-    "uuid": "49326c01-1180-4743-b15f-f7157038a6ab",
+    "schema_url": "https://raw.githubusercontent.com/zarr-conventions/thumbnails/refs/tags/v2/schema.json",
+    "spec_url": "https://github.com/zarr-conventions/thumbnails/blob/v2/README.md",
+    "uuid": "38a1d2ca-5f40-4ee2-b4d5-5e87bfeb7549",
     "name": "thumbnails",
     "description": "Metadata for thumbnails representing Zarr data",
 }
@@ -612,7 +612,7 @@ def _write_thumbnails(
                     "width": image.width,
                     "height": image.height,
                     "media_type": "image/jpeg",
-                    "path": image_path,
+                    "uri": image_path,
                     "description": f"Middle {plane_name.upper()} slice{desc_suffix}",
                     "attributes": {
                         **generation_attrs,
