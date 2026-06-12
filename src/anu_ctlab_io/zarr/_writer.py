@@ -3,16 +3,21 @@
 import warnings
 from datetime import datetime
 from enum import Enum
+from io import BytesIO
 from math import prod
 from pathlib import Path
 from typing import Any, Literal
 
 import dask.array as da
+import numpy as np
 import zarr
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
 from ome_zarr_models.v05.multiscales import Multiscale
+from PIL import Image
+from zarr.core.buffer import default_buffer_prototype
+from zarr.core.sync import sync
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -26,6 +31,14 @@ _DEFAULT_SHARD_ELEMENTS = max(8192**2, 512**3)
 type ChunkShape = tuple[int, ...]
 type ChunkSpec = ChunkShape | int | Literal["auto"]
 type ShardSpec = ChunkShape | int | Literal["auto"] | None
+
+_THUMBNAILS_CONVENTION = {
+    "schema_url": "https://raw.githubusercontent.com/zarr-conventions/thumbnails/refs/tags/v1/schema.json",
+    "spec_url": "https://github.com/zarr-conventions/thumbnails/blob/v1/README.md",
+    "uuid": "49326c01-1180-4743-b15f-f7157038a6ab",
+    "name": "thumbnails",
+    "description": "Metadata for thumbnails representing Zarr data",
+}
 
 
 class OMEZarrVersion(Enum):
@@ -49,6 +62,7 @@ def dataset_to_zarr(
     shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
+    slice_thumbnails: bool | Literal["full"] = True,
     **extra_attrs: Any,
 ) -> None:
     """Write a :any:`Dataset` to Zarr format.
@@ -90,10 +104,22 @@ def dataset_to_zarr(
     :param dimension_separator_threshold: Use ``'/'`` as the chunk key dimension
         separator when the number of chunks exceeds this threshold; otherwise use
         ``'.'``. ``None`` uses the Zarr default of ``'/'``.
+    :param slice_thumbnails: Generate middle-plane JPEG thumbnails. Set to ``"full"``
+        to also generate full-resolution slices, or ``False`` to disable generation.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
         path = Path(path)
+
+    if (
+        slice_thumbnails is not False
+        and slice_thumbnails is not True
+        and slice_thumbnails != "full"
+    ):
+        raise ValueError(
+            "slice_thumbnails must be False, True, or 'full'. "
+            f"Got {slice_thumbnails!r}."
+        )
 
     if datatype is None:
         if dataset._datatype is not None:
@@ -125,6 +151,9 @@ def dataset_to_zarr(
             UserWarning,
             stacklevel=2,
         )
+
+    if slice_thumbnails:
+        _validate_thumbnail_dimensions(data_array, dataset)
 
     if isinstance(shards, tuple) and chunks == "auto":
         raise ValueError("shards cannot be provided without explicit chunks")
@@ -160,6 +189,7 @@ def dataset_to_zarr(
             create_array_kwargs,
             mango_attrs,
             ome_zarr_version,
+            slice_thumbnails,
         )
     else:
         _write_zarr_array(
@@ -170,6 +200,7 @@ def dataset_to_zarr(
             outer_shards,
             create_array_kwargs,
             mango_attrs,
+            slice_thumbnails,
         )
 
 
@@ -353,6 +384,7 @@ def _write_ome_zarr_group(
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
+    slice_thumbnails: bool | Literal["full"],
 ) -> None:
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
@@ -431,6 +463,11 @@ def _write_ome_zarr_group(
     # its corresponding region in the zarr array.
     da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
 
+    if slice_thumbnails:
+        _write_thumbnails(
+            root, data_array, dataset, include_full=slice_thumbnails == "full"
+        )
+
 
 def _write_zarr_array(
     data_array: da.Array,
@@ -440,6 +477,7 @@ def _write_zarr_array(
     outer_shards: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
+    slice_thumbnails: bool | Literal["full"],
 ) -> None:
     """Write data as a simple Zarr V3 array with mango metadata.
 
@@ -478,3 +516,155 @@ def _write_zarr_array(
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
     da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
+
+    if slice_thumbnails:
+        _write_thumbnails(
+            array, data_array, dataset, include_full=slice_thumbnails == "full"
+        )
+
+
+def _write_thumbnails(
+    node: zarr.Array[Any] | zarr.Group,
+    data_array: da.Array,
+    dataset: Dataset,
+    *,
+    include_full: bool,
+) -> None:
+    """Generate and register middle-plane slice thumbnails."""
+    _validate_thumbnail_dimensions(data_array, dataset)
+    dimension_names = dataset.dimension_names
+    plane_specs = (
+        ("xy", "z", ("y", "x")),
+        ("xz", "y", ("z", "x")),
+        ("yz", "x", ("z", "y")),
+    )
+    plane_arrays: list[da.Array] = []
+    plane_metadata: list[tuple[str, str, int, tuple[str, str]]] = []
+    for plane_name, slice_axis, plane_axes in plane_specs:
+        slice_axis_index = dimension_names.index(slice_axis)
+        slice_index = data_array.shape[slice_axis_index] // 2
+        indexer: list[slice | int] = [slice(None)] * 3
+        indexer[slice_axis_index] = slice_index
+        remaining_axes = tuple(
+            name
+            for index, name in enumerate(dimension_names)
+            if index != slice_axis_index
+        )
+        transpose_axes = tuple(remaining_axes.index(axis) for axis in plane_axes)
+        plane_arrays.append(data_array[tuple(indexer)].transpose(transpose_axes))
+        plane_metadata.append((plane_name, slice_axis, slice_index, plane_axes))
+
+    computed_planes = da.compute(*plane_arrays)  # type: ignore[no-untyped-call]
+    planes: dict[str, tuple[np.ndarray[Any, Any], str, int, tuple[str, str]]] = {}
+    for metadata, computed_plane in zip(plane_metadata, computed_planes, strict=True):
+        plane_name, slice_axis, slice_index, plane_axes = metadata
+        plane = np.asarray(computed_plane)
+        planes[plane_name] = (plane, slice_axis, slice_index, plane_axes)
+
+    mask_value = dataset.mask_value
+    valid_values = []
+    valid_masks: dict[str, np.ndarray[Any, np.dtype[np.bool_]]] = {}
+    for plane_name, (plane, _, _, _) in planes.items():
+        valid = np.isfinite(plane)
+        if mask_value is not None:
+            valid &= plane != mask_value
+        valid_masks[plane_name] = valid
+        valid_values.append(plane[valid])
+
+    nonempty_values = [values for values in valid_values if values.size > 0]
+    if nonempty_values:
+        lower, upper = np.percentile(np.concatenate(nonempty_values), (1.0, 99.0))
+    else:
+        lower = upper = 0.0
+
+    entries: list[dict[str, Any]] = []
+    for plane_name, (plane, slice_axis, slice_index, plane_axes) in planes.items():
+        grayscale = _to_grayscale(plane, valid_masks[plane_name], lower, upper)
+        generation_attrs = {
+            "plane": plane_name.upper(),
+            "slice_axis": slice_axis,
+            "slice_index": slice_index,
+            "plane_axes": list(plane_axes),
+            "lower_percentile": 1.0,
+            "upper_percentile": 99.0,
+            "lower_value": float(lower),
+            "upper_value": float(upper),
+        }
+
+        thumbnail = Image.fromarray(grayscale)
+        thumbnail.thumbnail((512, 512))
+        images = [(thumbnail, ["thumbnail"])]
+        full_image = Image.fromarray(grayscale)
+        if include_full:
+            if full_image.size == thumbnail.size:
+                images[0][1].append("full_resolution")
+            else:
+                images.append((full_image, ["full_resolution"]))
+
+        for image, roles in images:
+            image_path = (
+                f"thumbnails/middle_{plane_name}_{image.width}x{image.height}.jpg"
+            )
+            _write_image(node, image_path, image, "JPEG", quality=85)
+            entries.append(
+                {
+                    "width": image.width,
+                    "height": image.height,
+                    "media_type": "image/jpeg",
+                    "path": image_path,
+                    "description": f"Middle {plane_name.upper()} slice",
+                    "attributes": {**generation_attrs, "roles": roles},
+                }
+            )
+
+    conventions = list(node.attrs.get("zarr_conventions", []))  # type: ignore[arg-type]
+    conventions.append(_THUMBNAILS_CONVENTION)
+    node.attrs["zarr_conventions"] = conventions
+    node.attrs["thumbnails"] = entries
+
+
+def _validate_thumbnail_dimensions(data_array: da.Array, dataset: Dataset) -> None:
+    dimension_names = dataset.dimension_names
+    if (
+        data_array.ndim != 3
+        or len(dimension_names) != 3
+        or set(dimension_names)
+        != {
+            "x",
+            "y",
+            "z",
+        }
+    ):
+        raise ValueError(
+            "Thumbnail generation requires a three-dimensional dataset with exactly "
+            "one named x, y, and z dimension. Set slice_thumbnails=False to skip it."
+        )
+
+
+def _to_grayscale(
+    plane: np.ndarray[Any, Any],
+    valid: np.ndarray[Any, np.dtype[np.bool_]],
+    lower: float,
+    upper: float,
+) -> np.ndarray[Any, np.dtype[np.uint8]]:
+    grayscale = np.zeros(plane.shape, dtype=np.uint8)
+    if upper > lower:
+        scaled = np.clip(
+            (plane[valid].astype(np.float64) - lower) / (upper - lower), 0, 1
+        )
+        grayscale[valid] = np.rint(scaled * 255).astype(np.uint8)
+    return grayscale
+
+
+def _write_image(
+    node: zarr.Array[Any] | zarr.Group,
+    path: str,
+    image: Image.Image,
+    image_format: str,
+    **save_kwargs: Any,
+) -> None:
+    output = BytesIO()
+    image.save(output, format=image_format, **save_kwargs)
+    buffer = default_buffer_prototype().buffer.from_bytes(output.getvalue())
+    key = f"{node.store_path.path}/{path}" if node.store_path.path else path
+    sync(node.store.set(key, buffer))

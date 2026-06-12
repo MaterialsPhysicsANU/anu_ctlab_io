@@ -5,6 +5,7 @@ from pathlib import Path
 import dask.array as da
 import numpy as np
 import pytest
+from PIL import Image
 
 try:
     from dask.array.core import PerformanceWarning
@@ -957,3 +958,210 @@ def test_size_parameters_and_explicit_shapes(_make_dataset):
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.parametrize(
+    "ome_zarr_version", [anu_ctlab_io.zarr.OMEZarrVersion.v05, None]
+)
+def test_write_slice_thumbnails(_make_dataset, tmp_path, ome_zarr_version):
+    import zarr
+
+    shape = (5, 7, 9)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    data[0, 0, 0] = 1_000_000  # Outside all three middle slices.
+    dataset, _ = _make_dataset(shape, data=data, dtype=np.float32, datatype=None)
+    output_path = tmp_path / "images.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset, output_path, ome_zarr_version=ome_zarr_version
+    )
+
+    node = zarr.open(output_path, zarr_format=3)
+    attrs = dict(node.attrs)
+    assert any(
+        convention["uuid"] == "49326c01-1180-4743-b15f-f7157038a6ab"
+        for convention in attrs["zarr_conventions"]
+    )
+    assert len(attrs["thumbnails"]) == 3
+
+    planes = {
+        "xy": data[shape[0] // 2, :, :],
+        "xz": data[:, shape[1] // 2, :],
+        "yz": data[:, :, shape[2] // 2],
+    }
+    combined = np.concatenate([plane.ravel() for plane in planes.values()])
+    lower, upper = np.percentile(combined, (1.0, 99.0))
+
+    for plane_name, plane in planes.items():
+        path = (
+            output_path
+            / "thumbnails"
+            / f"middle_{plane_name}_{plane.shape[1]}x{plane.shape[0]}.jpg"
+        )
+        assert path.exists()
+        with Image.open(path) as thumbnail:
+            assert thumbnail.mode == "L"
+            assert thumbnail.size == (plane.shape[1], plane.shape[0])
+
+    metadata_by_path = {entry["path"]: entry for entry in attrs["thumbnails"]}
+    xy_metadata = metadata_by_path[f"thumbnails/middle_xy_{shape[2]}x{shape[1]}.jpg"]
+    assert xy_metadata["width"] == shape[2]
+    assert xy_metadata["height"] == shape[1]
+    assert xy_metadata["attributes"]["slice_axis"] == "z"
+    assert xy_metadata["attributes"]["slice_index"] == shape[0] // 2
+    assert xy_metadata["attributes"]["lower_value"] == pytest.approx(lower)
+    assert xy_metadata["attributes"]["upper_value"] == pytest.approx(upper)
+    assert xy_metadata["attributes"]["upper_value"] < 1_000_000
+
+
+def test_write_full_slice_thumbnails(_make_dataset, tmp_path):
+    shape = (3, 4, 600)
+    dataset, _ = _make_dataset(shape, datatype=None)
+    output_path = tmp_path / "resized.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, slice_thumbnails="full")
+
+    with Image.open(output_path / "thumbnails/middle_xy_600x4.jpg") as full:
+        assert full.size == (600, 4)
+    with Image.open(output_path / "thumbnails/middle_xy_512x3.jpg") as thumbnail:
+        assert thumbnail.size == (512, 3)
+
+
+def test_write_full_slice_thumbnails_deduplicates_same_size(_make_dataset, tmp_path):
+    dataset, _ = _make_dataset((3, 4, 5), datatype=None)
+    output_path = tmp_path / "deduplicated.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, slice_thumbnails="full")
+
+    import zarr
+
+    root = zarr.open_group(output_path, zarr_format=3)
+    assert len(root.attrs["thumbnails"]) == 3
+    assert all(
+        entry["attributes"]["roles"] == ["thumbnail", "full_resolution"]
+        for entry in root.attrs["thumbnails"]
+    )
+    assert len(list((output_path / "thumbnails").glob("*.jpg"))) == 3
+
+
+def test_write_thumbnails_reordered_dimensions(tmp_path):
+    shape = (7, 9, 5)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    dataset = anu_ctlab_io.Dataset(
+        da.from_array(data),
+        dimension_names=("y", "x", "z"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+    )
+    output_path = tmp_path / "reordered.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
+
+    with Image.open(
+        output_path / f"thumbnails/middle_xy_{shape[1]}x{shape[0]}.jpg"
+    ) as image:
+        assert image.size == (shape[1], shape[0])
+    with Image.open(
+        output_path / f"thumbnails/middle_xz_{shape[1]}x{shape[2]}.jpg"
+    ) as image:
+        assert image.size == (shape[1], shape[2])
+    with Image.open(
+        output_path / f"thumbnails/middle_yz_{shape[0]}x{shape[2]}.jpg"
+    ) as image:
+        assert image.size == (shape[0], shape[2])
+
+
+def test_write_thumbnails_excludes_invalid_values(tmp_path):
+    import zarr
+
+    shape = (3, 4, 5)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+    data[shape[0] // 2, 0, 0] = np.nan
+    data[shape[0] // 2, 0, 1] = anu_ctlab_io.DataType.TOMO_FLOAT.mask_value
+    dataset = anu_ctlab_io.Dataset(
+        da.from_array(data),
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+        datatype=anu_ctlab_io.DataType.TOMO_FLOAT,
+    )
+    output_path = tmp_path / "invalid.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
+
+    array = zarr.open_array(output_path, zarr_format=3)
+    metadata = {entry["path"]: entry for entry in array.attrs["thumbnails"]}[
+        "thumbnails/middle_xy_5x4.jpg"
+    ]
+    assert metadata["attributes"]["upper_value"] < 100
+    with Image.open(output_path / metadata["path"]) as diagnostic:
+        pixels = np.asarray(diagnostic)
+        assert pixels[0, 0] < 10
+        assert pixels[0, 1] < 10
+
+
+def test_write_thumbnails_all_invalid_is_black(tmp_path):
+    data = np.full((3, 4, 5), np.nan, dtype=np.float32)
+    dataset = anu_ctlab_io.Dataset(
+        da.from_array(data),
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+    )
+    output_path = tmp_path / "all_invalid.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
+
+    with Image.open(output_path / "thumbnails/middle_xy_5x4.jpg") as image:
+        assert np.asarray(image).max() < 10
+
+
+def test_write_thumbnails_constant_data_is_black(_make_dataset, tmp_path):
+    dataset, _ = _make_dataset(
+        (3, 4, 5), data=np.full((3, 4, 5), 42, dtype=np.uint16), datatype=None
+    )
+    output_path = tmp_path / "constant.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path, ome_zarr_version=None)
+
+    with Image.open(output_path / "thumbnails/middle_xy_5x4.jpg") as image:
+        assert np.asarray(image).max() < 10
+
+
+def test_thumbnail_generation_requires_named_xyz_dimensions(tmp_path):
+    dataset = anu_ctlab_io.Dataset(
+        da.zeros((3, 4, 5)),
+        dimension_names=("a", "b", "c"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+    )
+    output_path = tmp_path / "invalid_dimensions.zarr"
+
+    with pytest.raises(ValueError, match="exactly one named x, y, and z dimension"):
+        anu_ctlab_io.zarr.dataset_to_zarr(dataset, output_path)
+    assert not output_path.exists()
+
+
+def test_disable_slice_thumbnail_generation(_make_dataset, tmp_path):
+    dataset, _ = _make_dataset((3, 4, 5))
+    output_path = tmp_path / "disabled.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset, output_path, slice_thumbnails=False, ome_zarr_version=None
+    )
+
+    import zarr
+
+    array = zarr.open_array(output_path, zarr_format=3)
+    assert "zarr_conventions" not in array.attrs
+    assert "thumbnails" not in array.attrs
+    assert not (output_path / "thumbnails").exists()
+
+
+def test_invalid_slice_thumbnail_mode(_make_dataset, tmp_path):
+    dataset, _ = _make_dataset((3, 4, 5))
+
+    with pytest.raises(ValueError, match="slice_thumbnails must be"):
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset, tmp_path / "invalid.zarr", slice_thumbnails="invalid"
+        )
