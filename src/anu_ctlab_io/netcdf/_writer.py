@@ -150,16 +150,18 @@ def _set_global_attributes(
     for key, value in common_attrs.items():  # NOTE: h5netcdf lacks setncatts
         # h5netcdf stores Python str as UTF-8 NC_STRING; encode to bytes so it
         # is stored as ASCII NC_CHAR, matching what the reference files use.
-        ncfile.setncattr(
-            key, np.bytes_(value.encode("ascii")) if isinstance(value, str) else value
-        )
+        # Booleans are not supported by NetCDF, so convert to int.
+        if isinstance(value, str):
+            value = np.bytes_(value.encode("ascii"))
+        elif isinstance(value, bool):
+            value = np.int_(int(value))
+        ncfile.setncattr(key, value)
 
     if include_history and serialized_history:
         for key, value in serialized_history.items():
-            ncfile.setncattr(
-                f"history_{key}",
-                np.bytes_(value.encode("ascii")) if isinstance(value, str) else value,
-            )
+            if isinstance(value, str):
+                value = np.bytes_(value.encode("ascii"))
+            ncfile.setncattr(f"history_{key}", value)
 
 
 def _create_data_variable(
