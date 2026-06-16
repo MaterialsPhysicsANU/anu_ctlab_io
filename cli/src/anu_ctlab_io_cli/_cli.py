@@ -13,6 +13,11 @@ logger = logging.getLogger(__name__)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
 
+# Build datatype list for help text at import time
+from anu_ctlab_io._datatype import DataType
+
+VALID_DATATYPES = ", ".join(str(dt) for dt in DataType)
+
 
 # TODO: Make part of the library
 class InputStorageFormat(str, Enum):
@@ -56,7 +61,7 @@ def cli(
         str | None,
         typer.Option(
             "--datatype",
-            help="Datatype to use when writing (e.g., tomo, tomo_float, segmented). Required when converting plain Zarr arrays without mango attributes to NetCDF.",
+            help=f"Datatype to use when writing. Valid types: {VALID_DATATYPES}. Required when converting plain Zarr arrays without mango attributes to NetCDF.",
         ),
     ] = None,
     scheduler: Annotated[
@@ -151,7 +156,17 @@ def _convert(
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
     if datatype is not None:
         kwargs["datatype"] = datatype
-    return dataset.to_path(output, **kwargs)
+    try:
+        return dataset.to_path(output, **kwargs)
+    except ValueError as e:
+        if "datatype must be provided" in str(e):
+            raise typer.BadParameter(
+                f"No datatype could be inferred from the input dataset. "
+                f"Please specify one explicitly using --datatype. "
+                f"Valid datatypes are: {VALID_DATATYPES}",
+                param_hint="--datatype",
+            ) from e
+        raise
 
 
 def main() -> None:
