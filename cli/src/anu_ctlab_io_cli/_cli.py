@@ -3,15 +3,19 @@
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import zarr
 from dask.delayed import Delayed
 
+from anu_ctlab_io._datatype import DataType
+
 logger = logging.getLogger(__name__)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
+
+VALID_DATATYPES = ", ".join(str(dt) for dt in DataType)
 
 
 # TODO: Make part of the library
@@ -52,6 +56,13 @@ def cli(
             help="Output format (default: auto-detect from extension).",
         ),
     ] = OutputStorageFormat.auto,
+    datatype: Annotated[
+        str | None,
+        typer.Option(
+            "--datatype",
+            help=f"Datatype to use when writing. Valid types: {VALID_DATATYPES}. Required when converting plain Zarr arrays without mango attributes to NetCDF.",
+        ),
+    ] = None,
     scheduler: Annotated[
         Scheduler,
         typer.Option(
@@ -86,7 +97,7 @@ def cli(
             from dask.distributed import Client, progress, wait
 
             with Client() as client:
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(input, output, input_format, output_format, datatype)
                 if result is not None:
                     future = client.compute(result)
                     progress(future)
@@ -99,7 +110,7 @@ def cli(
             from dask.diagnostics import ProgressBar
 
             with ProgressBar():
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(input, output, input_format, output_format, datatype)
                 if result is not None:
                     result.compute(scheduler=scheduler.value)
 
@@ -133,6 +144,7 @@ def _convert(
     output: Path,
     input_format: InputStorageFormat,
     output_format: OutputStorageFormat,
+    datatype: str | None = None,
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
@@ -140,7 +152,20 @@ def _convert(
     logger.info("Input: %s", input)
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
-    return dataset.to_path(output, filetype=output_format.value, compute=False)
+    kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
+    if datatype is not None:
+        kwargs["datatype"] = datatype
+    try:
+        return dataset.to_path(output, **kwargs)
+    except ValueError as e:
+        if "datatype must be provided" in str(e):
+            raise typer.BadParameter(
+                f"No datatype could be inferred from the input dataset. "
+                f"Please specify one explicitly using --datatype. "
+                f"Valid datatypes are: {VALID_DATATYPES}",
+                param_hint="--datatype",
+            ) from e
+        raise
 
 
 def main() -> None:

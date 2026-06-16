@@ -47,14 +47,23 @@ def dataset_from_zarr(path: Path, **kwargs: Any) -> Dataset:
 def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
     za = zarr.open_array(path, zarr_format=3)
     data = da.from_zarr(za, **kwargs)  # type: ignore[no-untyped-call]
-    attrs: dict[str, Any] = dict(za.attrs)["mango"]  # type: ignore[assignment]
     dimension_names: tuple[str, ...] = za.metadata.dimension_names  # type: ignore[assignment, union-attr]
-    voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
-    voxel_size = attrs["voxel_size_xyz"]
-    datatype = DataType.from_basename(attrs["basename"])
-    history = attrs["history"]
-    dataset_id_raw = attrs.get("dataset_id")
-    dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
+
+    if "mango" not in za.attrs:
+        # Handle a plain Zarr array that has no mango attributes
+        voxel_unit = VoxelUnit.VOXEL
+        voxel_size = (np.float32(1.0), np.float32(1.0), np.float32(1.0))
+        datatype = None
+        history: History = {}
+        dataset_id = None
+    else:
+        attrs: dict[str, Any] = dict(za.attrs)["mango"]  # type: ignore[assignment]
+        voxel_unit = VoxelUnit.from_str(attrs["voxel_unit"])
+        voxel_size = attrs["voxel_size_xyz"]
+        datatype = DataType.from_basename(attrs["basename"])
+        history = attrs["history"]
+        dataset_id_raw = attrs.get("dataset_id")
+        dataset_id = str(dataset_id_raw) if dataset_id_raw is not None else None
 
     return Dataset(
         data=data,
