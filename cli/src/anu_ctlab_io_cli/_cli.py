@@ -3,7 +3,7 @@
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import zarr
@@ -52,6 +52,13 @@ def cli(
             help="Output format (default: auto-detect from extension).",
         ),
     ] = OutputStorageFormat.auto,
+    datatype: Annotated[
+        str | None,
+        typer.Option(
+            "--datatype",
+            help="Datatype to use when writing (e.g., tomo, tomo_float, segmented). Required when converting plain Zarr arrays without mango attributes to NetCDF.",
+        ),
+    ] = None,
     scheduler: Annotated[
         Scheduler,
         typer.Option(
@@ -86,7 +93,7 @@ def cli(
             from dask.distributed import Client, progress, wait
 
             with Client() as client:
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(input, output, input_format, output_format, datatype)
                 if result is not None:
                     future = client.compute(result)
                     progress(future)
@@ -99,7 +106,7 @@ def cli(
             from dask.diagnostics import ProgressBar
 
             with ProgressBar():
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(input, output, input_format, output_format, datatype)
                 if result is not None:
                     result.compute(scheduler=scheduler.value)
 
@@ -133,6 +140,7 @@ def _convert(
     output: Path,
     input_format: InputStorageFormat,
     output_format: OutputStorageFormat,
+    datatype: str | None = None,
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
@@ -140,7 +148,10 @@ def _convert(
     logger.info("Input: %s", input)
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
-    return dataset.to_path(output, filetype=output_format.value, compute=False)
+    kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
+    if datatype is not None:
+        kwargs["datatype"] = datatype
+    return dataset.to_path(output, **kwargs)
 
 
 def main() -> None:
