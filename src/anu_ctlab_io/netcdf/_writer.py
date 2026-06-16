@@ -11,6 +11,7 @@ import dask
 import dask.array as da
 import h5netcdf.legacyapi as nc4  # type: ignore[import-not-found]
 import numpy as np
+from dask.delayed import Delayed
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -29,8 +30,9 @@ def dataset_to_netcdf(
     # elements_per_file is the mango default of 256 MB per file (mango ignores the element size).
     elements_per_file: int | None = 256 * 1024 * 1024,
     mango_compatible_slices_per_file_rounding: bool = True,
+    compute: bool = True,
     **extra_attrs: Any,
-) -> None:
+) -> Delayed | None:
     """Write a :any:`Dataset` to netcdf format.
 
     :param dataset: The :any:`Dataset` to write.
@@ -48,6 +50,8 @@ def dataset_to_netcdf(
         ``elements_per_file`` to a value divisible by common factors
         (2, 4, 6, 8, 12, 16, 24, 40, 60, 80, 100, 120, 200) to avoid prime numbers, matching mango's behavior.
         Defaults to True.
+    :param compute: If ``True`` (default), compute immediately. If ``False``, return
+        a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional global attributes to include.
     """
     if max_file_size_mb is not None:
@@ -122,7 +126,7 @@ def dataset_to_netcdf(
             )
 
         if zdim > slices_per_file:
-            _write_split_netcdf(
+            return _write_split_netcdf(
                 data_array,
                 path,
                 datatype,
@@ -130,16 +134,17 @@ def dataset_to_netcdf(
                 common_attrs,
                 compression_level,
                 serialized_history,
+                compute,
             )
-            return
 
-    _write_single_netcdf(
+    return _write_single_netcdf(
         data_array,
         path,
         datatype,
         common_attrs,
         compression_level,
         serialized_history,
+        compute,
     )
 
 
@@ -223,14 +228,15 @@ def _write_single_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     serialized_history: dict[str, str] | None,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write a single netcdf file."""
     if not str(path).endswith(".nc"):
         path = Path(str(path) + ".nc")
 
     zdim, _ydim, _xdim = data_array.shape
-    _write_block(
-        np.asarray(data_array),
+    task: Delayed = dask.delayed(_write_block)(  # type: ignore[attr-defined]
+        data_array,
         path,
         datatype,
         zdim,
@@ -242,6 +248,10 @@ def _write_single_netcdf(
         serialized_history,
         True,
     )
+    if compute:
+        task.compute()  # type: ignore[no-untyped-call]
+        return None
+    return task
 
 
 def _write_block(
@@ -286,7 +296,8 @@ def _write_split_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     serialized_history: dict[str, str] | None,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write split netcdf files into a directory."""
     dir_path = _get_split_directory_path(base_path)
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -320,7 +331,11 @@ def _write_split_netcdf(
             )
         )
 
-    dask.compute(*tasks)  # type: ignore[attr-defined,no-untyped-call]
+    task: Delayed = dask.delayed(lambda *_: None)(*tasks)  # type: ignore[attr-defined]
+    if compute:
+        task.compute()  # type: ignore[no-untyped-call]
+        return None
+    return task
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {

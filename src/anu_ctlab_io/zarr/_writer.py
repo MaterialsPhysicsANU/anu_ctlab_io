@@ -9,6 +9,7 @@ from typing import Any, Literal
 
 import dask.array as da
 import zarr
+from dask.delayed import Delayed
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
@@ -49,8 +50,9 @@ def dataset_to_zarr(
     shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
+    compute: bool = True,
     **extra_attrs: Any,
-) -> None:
+) -> Delayed | None:
     """Write a :any:`Dataset` to Zarr format.
 
     By default, chunks and shards use power-of-two square or cubic shapes targeting
@@ -90,6 +92,8 @@ def dataset_to_zarr(
     :param dimension_separator_threshold: Use ``'/'`` as the chunk key dimension
         separator when the number of chunks exceeds this threshold; otherwise use
         ``'.'``. ``None`` uses the Zarr default of ``'/'``.
+    :param compute: If ``True`` (default), compute immediately. If ``False``, return
+        a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -151,7 +155,7 @@ def dataset_to_zarr(
         )
 
     if ome_zarr_version is not None:
-        _write_ome_zarr_group(
+        return _write_ome_zarr_group(
             data_array,
             path,
             dataset,
@@ -160,9 +164,10 @@ def dataset_to_zarr(
             create_array_kwargs,
             mango_attrs,
             ome_zarr_version,
+            compute,
         )
     else:
-        _write_zarr_array(
+        return _write_zarr_array(
             data_array,
             path,
             dataset,
@@ -170,6 +175,7 @@ def dataset_to_zarr(
             outer_shards,
             create_array_kwargs,
             mango_attrs,
+            compute,
         )
 
 
@@ -353,7 +359,8 @@ def _write_ome_zarr_group(
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
     In Zarr v3 sharding:
@@ -429,7 +436,8 @@ def _write_ome_zarr_group(
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
+    result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
+    return result
 
 
 def _write_zarr_array(
@@ -440,7 +448,8 @@ def _write_zarr_array(
     outer_shards: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write data as a simple Zarr V3 array with mango metadata.
 
     When ``outer_shards`` is provided, Zarr v3 sharding is used:
@@ -477,4 +486,5 @@ def _write_zarr_array(
     write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
+    result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
+    return result
