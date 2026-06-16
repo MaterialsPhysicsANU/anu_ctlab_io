@@ -1,31 +1,15 @@
 import tempfile
 from pathlib import Path
 
-import dask.array as da
 import numpy as np
 
-import anu_ctlab_io
 from anu_ctlab_io.raw import dataset_to_raw
 
 
-def _make_dataset(shape, dtype=np.uint16, chunks=None):
-    if chunks is None:
-        chunks = shape
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=dtype).reshape(shape), chunks=chunks
-    )
-    return anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-    )
-
-
-def test_write_raw_basic():
+def test_write_raw_basic(_make_dataset):
     """File exists, has the right size, and bytes decode back to the original array."""
     shape = (10, 20, 30)
-    dataset = _make_dataset(shape)
+    dataset, _ = _make_dataset(shape, datatype=None)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "output.raw"
@@ -41,10 +25,10 @@ def test_write_raw_basic():
         assert np.array_equal(recovered, dataset.data.compute())
 
 
-def test_write_raw_dtype_preserved():
+def test_write_raw_dtype_preserved(_make_dataset):
     """Float32 data is written as float32 (little-endian), not coerced."""
     shape = (5, 8, 8)
-    dataset = _make_dataset(shape, dtype=np.float32)
+    dataset, _ = _make_dataset(shape, dtype=np.float32, datatype=None)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "output.raw"
@@ -59,11 +43,11 @@ def test_write_raw_dtype_preserved():
         assert np.array_equal(recovered, dataset.data.compute())
 
 
-def test_write_raw_z_chunks():
+def test_write_raw_z_chunks(_make_dataset):
     """Multiple Z-chunks are streamed correctly and produce intact data."""
     shape = (30, 20, 10)
     # 3 chunks along Z
-    dataset = _make_dataset(shape, chunks=(10, 20, 10))
+    dataset, _ = _make_dataset(shape, chunks=(10, 20, 10), datatype=None)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "output.raw"
@@ -75,11 +59,11 @@ def test_write_raw_z_chunks():
         assert np.array_equal(recovered, dataset.data.compute())
 
 
-def test_write_raw_arbitrary_chunks():
+def test_write_raw_arbitrary_chunks(_make_dataset):
     """Data with multiple chunks on all three axes is written correctly."""
     shape = (24, 20, 16)
     # 3 chunks on Z, 2 on Y, 4 on X
-    dataset = _make_dataset(shape, chunks=(8, 10, 4))
+    dataset, _ = _make_dataset(shape, chunks=(8, 10, 4), datatype=None)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "output.raw"
@@ -91,10 +75,10 @@ def test_write_raw_arbitrary_chunks():
         assert np.array_equal(recovered, dataset.data.compute())
 
 
-def test_write_via_dataset_to_path():
+def test_write_via_dataset_to_path(_make_dataset):
     """High-level Dataset.to_path with filetype='raw' writes a valid raw file."""
     shape = (8, 12, 16)
-    dataset = _make_dataset(shape, chunks=(4, 6, 4))
+    dataset, _ = _make_dataset(shape, chunks=(4, 6, 4), datatype=None)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         path = Path(tmpdir) / "output.raw"

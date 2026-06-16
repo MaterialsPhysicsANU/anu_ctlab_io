@@ -1,3 +1,4 @@
+import json
 import tempfile
 from pathlib import Path
 
@@ -9,29 +10,24 @@ try:
     from dask.array.core import PerformanceWarning
 
     import anu_ctlab_io.zarr
-
-    _HAS_ZARR = True
+    from anu_ctlab_io.zarr import OMEZarrVersion
 except ImportError:
-    _HAS_ZARR = False
+    pytest.skip("Requires 'zarr' extra", allow_module_level=True)
+
+try:
+    import anu_ctlab_io.netcdf
+
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
 
 import anu_ctlab_io
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_single_ome_zarr():
+def test_write_single_ome_zarr(_make_dataset):
     """Test writing a single OME-Zarr group."""
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_output.zarr"
@@ -41,7 +37,7 @@ def test_write_single_ome_zarr():
             dataset,
             output_path,
             dataset_id="test_dataset",
-            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
+            ome_zarr_version=OMEZarrVersion.v05,
         )
 
         # Verify file exists
@@ -59,21 +55,10 @@ def test_write_single_ome_zarr():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_single_zarr_array():
+def test_write_single_zarr_array(_make_dataset):
     """Test writing a simple Zarr V3 array with mango metadata."""
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_output.zarr"
@@ -101,19 +86,129 @@ def test_write_single_zarr_array():
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_without_datatype():
-    """Test writing OME-Zarr without mango metadata (no datatype)."""
-    shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.float32).reshape(shape), chunks=shape
+@pytest.mark.parametrize(
+    ("ome_zarr_version", "num_chunks", "expected_separator"),
+    [
+        (None, 63, "."),
+        (None, 64, "."),
+        (None, 65, "/"),
+        (OMEZarrVersion.v05, 63, "."),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
+    ],
+)
+def test_chunk_key_separator_depends_on_number_of_chunks(
+    _make_dataset, ome_zarr_version, num_chunks, expected_separator
+):
+    """Use flat chunk keys when the number of chunks does not exceed the threshold."""
+    dataset, _ = _make_dataset((num_chunks, 1, 1), chunks=(1, 1, 1))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "separator.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=ome_zarr_version,
+            chunks=(1, 1, 1),
+            shards=None,
+            slice_thumbnails=False,
+        )
+
+        metadata_path = output_path / "zarr.json"
+        if ome_zarr_version is not None:
+            metadata_path = output_path / "0" / "zarr.json"
+        metadata = json.loads(metadata_path.read_text())
+        assert (
+            metadata["chunk_key_encoding"]["configuration"]["separator"]
+            == expected_separator
+        )
+
+
+@pytest.mark.parametrize(
+    ("ome_zarr_version", "num_shards", "expected_separator"),
+    [
+        (None, 63, "."),
+        (None, 64, "."),
+        (None, 65, "/"),
+        (OMEZarrVersion.v05, 63, "."),
+        (OMEZarrVersion.v05, 64, "."),
+        (OMEZarrVersion.v05, 65, "/"),
+    ],
+)
+def test_chunk_key_separator_uses_shards_when_sharded(
+    _make_dataset, ome_zarr_version, num_shards, expected_separator
+):
+    """Use flat chunk keys based on number of shards, not inner chunks, when sharded."""
+    # Create an array where inner chunks would be >64 but shards are <64.
+    dataset, _ = _make_dataset((num_shards, 1, 1), chunks=(1, 1, 1))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "separator_sharded.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=ome_zarr_version,
+            chunks=(1, 1, 1),
+            shards=(1, 1, 1),
+            slice_thumbnails=False,
+        )
+
+        metadata_path = output_path / "zarr.json"
+        if ome_zarr_version is not None:
+            metadata_path = output_path / "0" / "zarr.json"
+        metadata = json.loads(metadata_path.read_text())
+        assert (
+            metadata["chunk_key_encoding"]["configuration"]["separator"]
+            == expected_separator
+        )
+
+
+def test_dimension_separator_threshold_can_be_overridden(_make_dataset, tmp_path):
+    """The dimension separator threshold can be configured by the caller."""
+    dataset, _ = _make_dataset((20, 1, 1), chunks=(1, 1, 1))
+    output_path = tmp_path / "separator.zarr"
+
+    dataset.to_path(
+        output_path,
+        ome_zarr_version=None,
+        chunks=(1, 1, 1),
+        shards=None,
+        slice_thumbnails=False,
+        dimension_separator_threshold=21,
     )
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
+    metadata = json.loads((output_path / "zarr.json").read_text())
+    assert metadata["chunk_key_encoding"]["configuration"]["separator"] == "."
+
+
+def test_none_dimension_separator_threshold_uses_zarr_default(_make_dataset, tmp_path):
+    """A None threshold leaves chunk key encoding selection to Zarr."""
+    dataset, _ = _make_dataset((1, 1, 1), chunks=(1, 1, 1))
+    output_path = tmp_path / "separator.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        ome_zarr_version=None,
+        chunks=(1, 1, 1),
+        shards=None,
+        slice_thumbnails=False,
+        dimension_separator_threshold=None,
+    )
+
+    metadata = json.loads((output_path / "zarr.json").read_text())
+    assert metadata["chunk_key_encoding"]["configuration"]["separator"] == "/"
+
+
+def test_write_without_datatype(_make_dataset):
+    """Test writing OME-Zarr without mango metadata (no datatype)."""
+    shape = (5, 10, 15)
+    dataset, data = _make_dataset(
+        shape,
+        dtype=np.float32,
         voxel_unit=anu_ctlab_io.VoxelUnit.UM,
         voxel_size=(1.0, 1.0, 1.0),
+        datatype=None,
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -132,59 +227,33 @@ def test_write_without_datatype():
         assert np.allclose(read_dataset.voxel_size, (1.0, 1.0, 1.0))
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_split_zarr():
-    """Test writing sharded Zarr stores (replaces old split store functionality)."""
-    shape = (100, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
+def test_write_zarr_element_targets_control_auto_layout(_make_dataset):
+    """Integer chunk and shard specs control automatic layouts by element count."""
+    import zarr
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    shape = (100, 20, 60)
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test_sharded.zarr"
 
-        # Write with max shard size to create multiple shard files
-        # Each z-slice is 20*30*2 bytes = 1200 bytes = 0.0011 MB
-        # Set max_shard_size_mb to 0.02 MB and chunk_size_mb to 0.005 MB
-        # This should create multiple shard files
         anu_ctlab_io.zarr.dataset_to_zarr(
             dataset,
             output_path,
             dataset_id="test_sharded_dataset",
-            max_shard_size_mb=0.02,
-            chunk_size_mb=0.005,
+            chunks=8**3,
+            shards=16**3,
         )
 
-        # Check zarr was created
-        assert output_path.exists()
-        assert output_path.is_dir()
+        array = zarr.open_array(output_path / "0", mode="r")
+        assert array.chunks == (8, 8, 8)
+        assert array.shards == (16, 16, 16)
 
-        # Check multiple shard files exist
-        shard_files = list(output_path.glob("0/c/**/*"))
-        assert len(shard_files) > 1, (
-            f"Expected multiple shard files, got {len(shard_files)}"
-        )
-
-        # Verify it can be read back correctly
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert loaded_dataset.data.shape == shape
-        assert loaded_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.MM
-
-        # Verify data integrity
-        original_sum = data.sum().compute()
-        loaded_sum = loaded_dataset.data.sum().compute()
-        assert np.isclose(original_sum, loaded_sum)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_roundtrip_against_reference():
     """Test roundtrip by comparing with reference Zarr files."""
     # Read existing test file
@@ -215,7 +284,6 @@ def test_roundtrip_against_reference():
         assert read_dataset.dimension_names == original_dataset.dimension_names
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
 def test_roundtrip_ome_zarr():
     """Test roundtrip with OME-Zarr format."""
     # Read existing OME-Zarr test file
@@ -230,7 +298,7 @@ def test_roundtrip_ome_zarr():
             output_path,
             datatype=anu_ctlab_io.DataType.TOMO,
             dataset_id="ome_roundtrip_test",
-            ome_zarr_version=anu_ctlab_io.zarr.OMEZarrVersion.v05,
+            ome_zarr_version=OMEZarrVersion.v05,
         )
 
         # Read it back
@@ -245,21 +313,10 @@ def test_roundtrip_ome_zarr():
         assert read_dataset.voxel_unit == original_dataset.voxel_unit
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_to_path_auto_detection():
+def test_to_path_auto_detection(_make_dataset):
     """Test that Dataset.to_path() correctly auto-detects .zarr extension."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "auto_detect.zarr"
@@ -277,27 +334,15 @@ def test_to_path_auto_detection():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_with_history():
+def test_write_with_history(_make_dataset):
     """Test writing with custom history metadata."""
     shape = (5, 10, 15)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
     custom_history = {
         "step1": {"operation": "reconstruction", "timestamp": "2024-01-01"},
         "step2": {"operation": "filtering", "timestamp": "2024-01-02"},
     }
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-        history=custom_history,
-    )
+    dataset, _ = _make_dataset(shape, history=custom_history)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "history_test.zarr"
@@ -311,23 +356,13 @@ def test_write_with_history():
         assert "step2" in read_dataset.history
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_different_dtypes():
+def test_write_different_dtypes(_make_dataset):
     """Test writing with different numpy dtypes."""
     dtypes = [np.uint8, np.uint16, np.int16, np.float32]
 
     for dtype in dtypes:
         shape = (5, 10, 15)
-        data = da.from_array(
-            np.arange(np.prod(shape), dtype=dtype).reshape(shape), chunks=shape
-        )
-
-        dataset = anu_ctlab_io.Dataset(
-            data=data,
-            dimension_names=("z", "y", "x"),
-            voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-            voxel_size=(0.05, 0.05, 0.05),
-        )
+        dataset, data = _make_dataset(shape, dtype=dtype, datatype=None)
 
         with tempfile.TemporaryDirectory() as tmpdir:
             output_path = Path(tmpdir) / f"dtype_{dtype.__name__}.zarr"
@@ -339,21 +374,10 @@ def test_write_different_dtypes():
             assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_with_explicit_chunks_and_shards():
+def test_write_with_explicit_chunks_and_shards(_make_dataset):
     """Test writing with user-provided chunk and shard shapes."""
     shape = (100, 50, 60)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 50, 60)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 50, 60))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "explicit_shapes.zarr"
@@ -374,20 +398,12 @@ def test_write_with_explicit_chunks_and_shards():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_write_explicit_shapes_roundtrip():
+def test_write_explicit_shapes_roundtrip(_make_dataset):
     """Test roundtrip with explicit chunk and shard shapes."""
     shape = (60, 40, 50)
-    data = da.from_array(
-        np.random.randint(0, 1000, shape, dtype=np.uint16), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.UM,
-        voxel_size=(1.0, 1.0, 1.0),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, data = _make_dataset(
+        shape,
+        data=np.random.randint(0, 1000, shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -412,18 +428,12 @@ def test_write_explicit_shapes_roundtrip():
         assert np.allclose(read_dataset.voxel_size, dataset.voxel_size)
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_error_chunks_without_shards():
+@pytest.mark.xfail(reason="This was the behaviour in <=1.2.2, but it is not useful")
+def test_error_chunks_without_shards(_make_dataset):
     """Test that providing chunks without shards raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -437,51 +447,49 @@ def test_error_chunks_without_shards():
             )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_error_shards_without_chunks():
+def test_error_shards_without_chunks(_make_dataset):
     """Test that providing shards without chunks raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        output_path = Path(tmpdir) / "test.zarr"
-
-        with pytest.raises(ValueError, match="chunks and shards must both be provided"):
-            anu_ctlab_io.zarr.dataset_to_zarr(
-                dataset,
-                output_path,
-                shards=(10, 20, 30),
-            )
-
-
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_error_both_shapes_and_sizes():
-    """Test that providing both shapes and sizes raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test.zarr"
 
         with pytest.raises(
-            ValueError, match="Cannot specify both chunks/shards and chunk_size_mb"
+            ValueError, match="shards cannot be provided without explicit chunks"
         ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                shards=(10, 20, 30),
+            )
+
+        with pytest.raises(
+            ValueError, match="shards cannot be provided without explicit chunks"
+        ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                chunks="auto",
+                shards=(10, 20, 30),
+            )
+
+
+def test_explicit_shapes_ignore_deprecated_chunk_size(_make_dataset):
+    """Deprecated size parameters are ignored when explicit shapes are provided."""
+    import zarr
+
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "test.zarr"
+
+        with pytest.warns(UserWarning, match="chunk_size_mb is ignored"):
             anu_ctlab_io.zarr.dataset_to_zarr(
                 dataset,
                 output_path,
@@ -490,48 +498,43 @@ def test_error_both_shapes_and_sizes():
                 chunk_size_mb=5.0,
             )
 
+        array = zarr.open_array(output_path / "0", mode="r")
+        assert array.chunks == (5, 20, 30)
+        assert array.shards == (10, 20, 30)
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_error_shapes_and_max_shard_size():
-    """Test that providing shapes with max_shard_size_mb raises ValueError."""
-    shape = (10, 20, 30)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
 
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+def test_auto_shards_ignore_deprecated_max_shard_size(_make_dataset):
+    """Deprecated shard size is ignored when selecting an auto shard layout."""
+    import zarr
+
+    dataset, _ = _make_dataset(
+        (10, 20, 30),
+        data=np.zeros((10, 20, 30), dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "test.zarr"
 
-        with pytest.raises(
-            ValueError, match="Cannot specify both chunks/shards and chunk_size_mb"
-        ):
+        with pytest.warns(UserWarning, match="max_shard_size_mb is ignored"):
             anu_ctlab_io.zarr.dataset_to_zarr(
                 dataset,
                 output_path,
                 chunks=(5, 20, 30),
-                shards=(10, 20, 30),
-                max_shard_size_mb=100.0,
+                shards="auto",
+                max_shard_size_mb=0.02,
             )
 
+        array = zarr.open_array(output_path / "0", mode="r")
+        assert array.chunks == (5, 20, 30)
+        assert array.shards == (10, 20, 30)
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_user_shapes_used_without_validation():
+
+def test_user_shapes_used_without_validation(_make_dataset):
     """Test that user-provided shapes are used directly without validation."""
     shape = (100, 50, 60)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, _ = _make_dataset(
+        shape,
+        data=np.zeros(shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -554,8 +557,7 @@ def test_user_shapes_used_without_validation():
         assert read_dataset.data.shape == shape
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_irregular_dask_chunks_write_correct_data():
+def test_irregular_dask_chunks_write_correct_data(_make_dataset):
     """Regression test: dask chunks smaller than the shard must not produce zeros (corruption) in output.
 
     dask's to_zarr, when writing to an existing zarr.Array, calls normalize_chunks("auto")
@@ -634,12 +636,10 @@ def test_irregular_dask_chunks_write_correct_data():
         # ---- part 2: confirm dataset_to_zarr produces correct output under the same mock ----
         # If the writer regresses to to_zarr, the injected sub-shard chunks will corrupt
         # the output and the data equality assertion will fail.
-        sub_shard_dataset = anu_ctlab_io.Dataset(
-            data=da.from_array(full_data, chunks=(sub_shard_z, shape[1], shape[2])),
-            dimension_names=("z", "y", "x"),
-            voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-            voxel_size=(0.05, 0.05, 0.05),
-            datatype=anu_ctlab_io.DataType.TOMO,
+        sub_shard_dataset, _ = _make_dataset(
+            shape,
+            chunks=(sub_shard_z, shape[1], shape[2]),
+            data=full_data,
         )
         new_path = Path(tmpdir) / "new.zarr"
         with patch(
@@ -661,8 +661,7 @@ def test_irregular_dask_chunks_write_correct_data():
         )
 
 
-@pytest.mark.skipif(not _HAS_ZARR, reason="Requires 'zarr' extra")
-def test_no_false_warning_with_remainder_chunks():
+def test_no_false_warning_with_remainder_chunks(_make_dataset):
     """Test that no false-positive warning occurs when shards don't divide evenly into array size.
 
     This is a regression test for the Dask Zarr write warning bug that was fixed in:
@@ -673,14 +672,9 @@ def test_no_false_warning_with_remainder_chunks():
     """
     # Use a shape where automatic chunking produces remainder chunks
     shape = (105, 50, 60)
-    data = da.from_array(np.zeros(shape, dtype=np.uint16), chunks=shape)
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, data = _make_dataset(
+        shape,
+        data=np.zeros(shape, dtype=np.uint16),
     )
 
     with tempfile.TemporaryDirectory() as tmpdir:
@@ -698,14 +692,22 @@ def test_no_false_warning_with_remainder_chunks():
                 max_shard_size_mb=1.0,  # Small shards to trigger remainder
             )
 
-            # Verify no PerformanceWarning was raised (it should be suppressed)
             perf_warnings = [
                 warning
                 for warning in w
-                if issubclass(warning.category, PerformanceWarning | UserWarning)
+                if issubclass(warning.category, PerformanceWarning)
             ]
             assert len(perf_warnings) == 0, (
-                f"Unexpected warnings raised: {[str(w.message) for w in perf_warnings]}"
+                f"Unexpected performance warnings raised: {[str(w.message) for w in perf_warnings]}"
+            )
+
+            user_warnings = [
+                warning for warning in w if issubclass(warning.category, UserWarning)
+            ]
+            assert len(user_warnings) == 1
+            assert (
+                "chunk_size_mb, max_shard_size_mb are ignored when writing Zarr"
+                in str(user_warnings[0].message)
             )
 
         # Verify the write succeeded and data is correct
@@ -713,3 +715,326 @@ def test_no_false_warning_with_remainder_chunks():
         read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert read_dataset.data.shape == shape
         assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+@pytest.mark.parametrize(
+    ("shape", "chunks", "shards", "expected_chunks", "expected_shards"),
+    [
+        ((40, 65, 97), "auto", "auto", (32, 32, 32), (64, 96, 128)),
+        ((1, 600, 700), "auto", "auto", (1, 256, 256), (1, 768, 768)),
+        ((21, 200, 300), "auto", "auto", (21, 32, 32), (21, 224, 320)),
+        ((60, 40, 50), (10, 0, 25), (30, 0, 0), (10, 40, 25), (30, 40, 50)),
+        ((1000, 512, 512), "auto", "auto", (32, 32, 32), (512, 512, 512)),
+        ((10, 20, 30), (5, 20, 30), (10, 20, 30), (5, 20, 30), (10, 20, 30)),
+        ((40, 65, 97), "auto", None, (32, 32, 32), None),
+        ((10, 20, 30), "auto", "auto", (10, 20, 30), (10, 20, 30)),
+        ((10, 20, 30), (5, 0, 0), None, (5, 20, 30), None),
+        ((40, 65, 97), (32, 32, 32), (32, 0, 0), (32, 32, 32), (32, 96, 128)),
+    ],
+)
+def test_resolve_zarr_layout(
+    shape,
+    chunks,
+    shards,
+    expected_chunks,
+    expected_shards,
+):
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=shape,
+        chunks=chunks,
+        shards=shards,
+    )
+
+    assert chunks == expected_chunks
+    assert shards == expected_shards
+
+
+@pytest.mark.parametrize(
+    ("elements", "expected_chunks"),
+    [
+        (32**3, (32, 32, 32)),
+        (64**3, (64, 64, 64)),
+        (64**3 - 1, (64, 64, 64)),
+    ],
+)
+def test_integer_chunks_are_element_based(elements, expected_chunks):
+    chunks, _ = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(1024, 1024, 1024),
+        chunks=elements,
+        shards=None,
+    )
+
+    assert chunks == expected_chunks
+
+
+@pytest.mark.parametrize(
+    ("elements", "expected_chunks"),
+    [
+        (32**2, (1, 32, 32)),
+        (64**2, (1, 64, 64)),
+        (64**2 - 1, (1, 64, 64)),
+    ],
+)
+def test_integer_chunks_are_element_based_for_2d(elements, expected_chunks):
+    chunks, _ = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(1, 1024, 1024),
+        chunks=elements,
+        shards=None,
+    )
+
+    assert chunks == expected_chunks
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected_chunks", "expected_shards"),
+    [
+        ((1024, 1024, 1024), (32, 32, 32), (512, 512, 512)),
+        ((1, 65536, 65536), (1, 256, 256), (1, 8192, 8192)),
+    ],
+)
+def test_auto_uses_default_element_targets(shape, expected_chunks, expected_shards):
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=shape,
+        chunks="auto",
+        shards="auto",
+    )
+
+    assert chunks == expected_chunks
+    assert shards == expected_shards
+
+
+def test_integer_shards_are_chunk_multiples():
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(100, 100, 100),
+        chunks=(10, 20, 25),
+        shards=32**3,
+    )
+
+    assert chunks == (10, 20, 25)
+    assert shards == (40, 40, 50)
+
+
+def test_integer_shards_are_chunk_multiples_for_2d():
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(1, 100, 100),
+        chunks=(1, 20, 25),
+        shards=32**2,
+    )
+
+    assert chunks == (1, 20, 25)
+    assert shards == (1, 40, 50)
+
+
+def test_integer_shards_support_zero_chunk_sentinels():
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(100, 100, 100),
+        chunks=(0, 20, 25),
+        shards=32**3,
+    )
+
+    assert chunks == (32, 20, 25)
+    assert shards == (32, 40, 50)
+
+
+@pytest.mark.parametrize("elements", [0, -1, True])
+def test_invalid_element_targets_raise(elements):
+    with pytest.raises(ValueError, match="elements must be a positive integer"):
+        anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+            shape=(100, 100, 100),
+            chunks=elements,
+            shards=None,
+        )
+
+
+def test_zero_chunk_and_shard_axes_expand_to_span_targets(_make_dataset):
+    """A zero in shards spans the array; a zero in chunks spans the resolved shard axis."""
+    import zarr
+
+    dataset, _ = _make_dataset((60, 40, 50))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "shapes_with_zero.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            chunks=(10, 0, 25),
+            shards=(30, 0, 0),
+            ome_zarr_version=None,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.chunks == (10, 40, 25)
+        assert array.shards == (30, 40, 50)
+
+
+def test_default_zarr_chunking_is_element_based(_make_dataset):
+    """Default Zarr writing uses element-based cubic chunks and shards."""
+    import zarr
+
+    dataset, _ = _make_dataset((40, 65, 97))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "default_layout.zarr"
+
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.chunks == (32, 32, 32)
+        assert array.shards == (64, 96, 128)
+
+
+def test_write_with_auto_chunks(_make_dataset):
+    """Passing chunks='auto' with shards=None uses the default unsharded chunk layout."""
+    import zarr
+
+    dataset, data = _make_dataset((10, 20, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "auto_chunks.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+            chunks="auto",
+            shards=None,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.shards is None
+        assert array.chunks == (10, 20, 32)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_write_with_auto_chunks_and_shards(_make_dataset):
+    """Passing chunks='auto' and shards='auto' uses the default sharded layout."""
+    import zarr
+
+    shape = (100, 20, 60)
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "auto_chunks_and_shards.zarr"
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+            chunks="auto",
+            shards="auto",
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.chunks == (32, 20, 32)
+        assert array.shards == (128, 20, 64)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_size_parameters_and_explicit_shapes(_make_dataset):
+    """Deprecated size parameters warn and explicit shapes still win."""
+    import zarr
+
+    dataset, data = _make_dataset((60, 40, 50))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "explicit_shapes_with_ignored_sizes.zarr"
+        with pytest.warns(
+            UserWarning,
+            match="chunk_size_mb, max_shard_size_mb are ignored when writing Zarr",
+        ):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                output_path,
+                ome_zarr_version=None,
+                chunks=(10, 40, 50),
+                shards=(30, 40, 50),
+                chunk_size_mb=0.005,
+                max_shard_size_mb=1.0,
+            )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.chunks == (10, 40, 50)
+        assert array.shards == (30, 40, 50)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_read_plain_zarr_array_without_mango():
+    """Test reading a plain Zarr v3 array without mango attributes."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without any mango metadata
+        za = zarr.open_array(
+            output_path,
+            mode="w",
+            shape=shape,
+            dtype=np.float32,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Read it back via dataset_from_zarr
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+
+        # Verify defaults for missing mango attributes
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)
+        assert read_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.VOXEL
+        assert read_dataset.voxel_size == (1.0, 1.0, 1.0)
+        assert read_dataset._datatype is None
+        assert read_dataset.history == {}
+        assert read_dataset._dataset_id is None
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+def test_plain_zarr_to_netcdf_requires_datatype():
+    """Test that converting a plain Zarr array to NetCDF requires explicit datatype."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zarr_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without mango metadata
+        za = zarr.open_array(
+            zarr_path,
+            mode="w",
+            shape=shape,
+            dtype=np.uint16,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Load the plain Zarr array
+        dataset = anu_ctlab_io.Dataset.from_path(zarr_path)
+        assert dataset._datatype is None
+
+        # Attempt to write to NetCDF without datatype should fail
+        netcdf_path = Path(tmpdir) / "output.nc"
+        with pytest.raises(ValueError, match="datatype must be provided"):
+            dataset.to_path(netcdf_path, filetype="NetCDF")
+
+        # Writing with explicit datatype should succeed
+        netcdf_path = Path(tmpdir) / "tomo_output.nc"
+        dataset.to_path(netcdf_path, filetype="NetCDF", datatype="tomo")
+        assert netcdf_path.exists()
+
+        # Verify the written NetCDF can be read back
+        read_dataset = anu_ctlab_io.Dataset.from_path(netcdf_path)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)

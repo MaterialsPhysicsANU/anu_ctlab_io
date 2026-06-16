@@ -9,7 +9,7 @@ import anu_ctlab_io.raw
 import anu_ctlab_io.zarr
 
 SHAPE = (1024, 512, 512)
-MAX_FILE_SIZE_MB = 256
+ELEMENTS_PER_FILE = 256 * 1024 * 1024
 
 
 @pytest.fixture(scope="module")
@@ -39,7 +39,7 @@ def test_write_netcdf(benchmark, dataset, tmp_path):
             dataset,
             tmp_path / "tomoOut_nc",
             compression_level=0,
-            max_file_size_mb=MAX_FILE_SIZE_MB,
+            elements_per_file=ELEMENTS_PER_FILE,
         )
 
     benchmark.pedantic(write, rounds=1, iterations=1)
@@ -56,7 +56,7 @@ def test_write_netcdf_distributed(benchmark, dataset, tmp_path):
                 dataset,
                 tmp_path / "tomoOut_nc",
                 compression_level=0,
-                max_file_size_mb=MAX_FILE_SIZE_MB,
+                elements_per_file=ELEMENTS_PER_FILE,
             )
 
         benchmark.pedantic(write, rounds=1, iterations=1)
@@ -71,8 +71,8 @@ def test_write_zarr(benchmark, dataset, tmp_path):
     Compressor is different (zstd vs zlib), but performance should be comparable
     """
     shape = SHAPE
-    bytes_per_slice = shape[1] * shape[2] * np.dtype(np.float32).itemsize
-    slices_per_block = max(1, int((MAX_FILE_SIZE_MB * 1024 * 1024) / bytes_per_slice))
+    elements_per_slice = shape[1] * shape[2]
+    slices_per_block = max(1, int(ELEMENTS_PER_FILE / elements_per_slice))
     chunks = (slices_per_block, shape[1], shape[2])
 
     def write():

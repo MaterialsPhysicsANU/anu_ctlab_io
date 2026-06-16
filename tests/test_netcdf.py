@@ -10,8 +10,9 @@ except ImportError:
 
 import anu_ctlab_io
 
+pytestmark = pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+
 def test_read_netcdf_single():
     dataset = anu_ctlab_io.Dataset.from_path("tests/data/tomoLoRes_SS.nc")
 
@@ -29,7 +30,6 @@ def test_read_netcdf_single():
     print(dataset.history)
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_read_netcdf_multi():
     dataset = anu_ctlab_io.Dataset.from_path(
         "tests/data/tomoHiRes_SS_nc",

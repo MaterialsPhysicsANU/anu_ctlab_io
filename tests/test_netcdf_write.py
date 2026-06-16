@@ -2,7 +2,6 @@ import tempfile
 from pathlib import Path
 
 import dask
-import dask.array as da
 import numpy as np
 import pytest
 
@@ -15,23 +14,14 @@ except ImportError:
 
 import anu_ctlab_io
 
+pytestmark = pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_write_single_netcdf():
+
+def test_write_single_netcdf(_make_dataset):
     """Test writing a single NetCDF file."""
     # Create test dataset
     shape = (10, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Use proper filename with datatype prefix for reading
@@ -54,35 +44,24 @@ def test_write_single_netcdf():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_write_split_netcdf():
+def test_write_split_netcdf(_make_dataset):
     """Test writing split NetCDF files."""
     # Create test dataset (100 z-slices)
     shape = (100, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Use proper filename with datatype prefix
         output_path = Path(tmpdir) / "tomo_test_split"
 
-        # Write with max file size to force splitting
-        # Each z-slice is 20*30*2 bytes = 1200 bytes
-        # Set max to ~0.02 MB to get ~18 slices per file
+        # Write with small elements_per_file to force splitting
+        # Each z-slice has 20*30 = 600 elements
+        # elements_per_file=1000 gives ~1 slice per file (will split)
         anu_ctlab_io.netcdf.dataset_to_netcdf(
             dataset,
             output_path,
             dataset_id="test_split_dataset",
-            max_file_size_mb=0.02,
+            elements_per_file=1000,
         )
 
         # Check directory was created
@@ -104,7 +83,6 @@ def test_write_split_netcdf():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_roundtrip_against_reference():
     """Test roundtrip by comparing with reference files."""
     # Read existing test file
@@ -133,21 +111,10 @@ def test_roundtrip_against_reference():
         assert read_dataset.voxel_unit == original_dataset.voxel_unit
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_write_split_replaces_nc_extension():
+def test_write_split_replaces_nc_extension(_make_dataset):
     """Test that split writing replaces .nc with _nc in directory name."""
     shape = (50, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=(10, 20, 30)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape, chunks=(10, 20, 30))
 
     with tempfile.TemporaryDirectory() as tmpdir:
         # Path ends with .nc
@@ -158,7 +125,7 @@ def test_write_split_replaces_nc_extension():
             dataset,
             output_path,
             dataset_id="test_nc_replacement",
-            max_file_size_mb=0.05,
+            elements_per_file=1000,
         )
 
         # Should have created directory with .nc replaced by _nc
@@ -180,7 +147,6 @@ def test_write_split_replaces_nc_extension():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_netcdf_history_roundtrip():
     """Test that history is preserved when reading and writing NetCDF files.
 
@@ -242,39 +208,27 @@ def test_netcdf_history_roundtrip():
                         assert orig_val == read_val
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_netcdf_default_split_behavior():
+def test_netcdf_default_split_behavior(_make_dataset):
     """Test that NetCDF defaults to split files for large datasets.
 
-    The default max_file_size_mb=500.0 should automatically split large datasets.
+    The default elements_per_file=256*1024*1024 should automatically split large datasets.
     """
-    # Create a "large" dataset that will trigger splitting (simulate 600MB)
-    # Note: We'll use small shape for test speed, but force split with small max_file_size_mb
+    # Create a "large" dataset that will trigger splitting
+    # Note: We'll use small shape for test speed, but force split with small elements_per_file
     test_shape = (100, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(test_shape), dtype=np.uint16).reshape(test_shape),
-        chunks=test_shape,
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(test_shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "tomo_default_split"
 
-        # Write with DEFAULT settings - should split due to small override for test
-        # Each z-slice is 20*30*2 = 1200 bytes = 0.0012 MB
-        # With default 500MB, wouldn't split, but we'll verify behavior with small size
+        # Write with small elements_per_file to force split in test
+        # Each z-slice has 20*30 = 600 elements
+        # elements_per_file=1000 gives ~1 slice per file
         anu_ctlab_io.netcdf.dataset_to_netcdf(
             dataset,
             output_path,
             dataset_id="test_default_split",
-            max_file_size_mb=0.01,  # Override to 0.01 MB to force split in test
+            elements_per_file=1000,  # Override to force split in test
         )
 
         # Check that split was created
@@ -283,7 +237,7 @@ def test_netcdf_default_split_behavior():
 
         block_files = list(dir_path.glob("block*.nc"))
         assert len(block_files) > 1, (
-            "Should have multiple blocks with small max_file_size"
+            "Should have multiple blocks with small elements_per_file"
         )
 
         # Verify we can read it back
@@ -292,21 +246,10 @@ def test_netcdf_default_split_behavior():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_netcdf_single_file_option():
-    """Test that max_file_size_mb=None forces single file output."""
+def test_netcdf_single_file_option(_make_dataset):
+    """Test that elements_per_file=None forces single file output."""
     shape = (50, 20, 30)
-    data = da.from_array(
-        np.arange(np.prod(shape), dtype=np.uint16).reshape(shape), chunks=shape
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.05, 0.05, 0.05),
-        datatype=anu_ctlab_io.DataType.TOMO,
-    )
+    dataset, data = _make_dataset(shape)
 
     with tempfile.TemporaryDirectory() as tmpdir:
         output_path = Path(tmpdir) / "tomo_single_force.nc"
@@ -316,7 +259,7 @@ def test_netcdf_single_file_option():
             dataset,
             output_path,
             dataset_id="test_single_file",
-            max_file_size_mb=None,  # Force single file
+            elements_per_file=None,  # Force single file
         )
 
         # Should create single .nc file, not _nc directory
@@ -331,8 +274,7 @@ def test_netcdf_single_file_option():
         assert np.array_equal(read_dataset.data.compute(), data.compute())
 
 
-@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
-def test_netcdf_write_with_parallel_dask_config():
+def test_netcdf_write_with_parallel_dask_config(_make_dataset):
     """Test that NetCDF writes work correctly even with parallel dask configuration.
 
     This simulates the Gadi scenario where dask is configured with many workers
@@ -341,16 +283,10 @@ def test_netcdf_write_with_parallel_dask_config():
     # Create test dataset with moderate size
     shape = (50, 100, 100)
     # Use chunked array to trigger parallel computation
-    data = da.from_array(
-        np.random.randint(0, 65535, size=shape, dtype=np.uint16), chunks=(10, 50, 50)
-    )
-
-    dataset = anu_ctlab_io.Dataset(
-        data=data,
-        dimension_names=("z", "y", "x"),
-        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
-        voxel_size=(0.03374304, 0.03374304, 0.03374304),
-        datatype=anu_ctlab_io.DataType.TOMO,
+    dataset, data = _make_dataset(
+        shape,
+        chunks=(10, 50, 50),
+        data=np.random.randint(0, 65535, size=shape, dtype=np.uint16),
     )
 
     # Configure dask with many threads to simulate Gadi environment
@@ -372,14 +308,14 @@ def test_netcdf_write_with_parallel_dask_config():
             assert np.array_equal(read_single.data.compute(), data.compute())
 
             # Test split file write
-            # Each z-slice is 100*100*2 bytes = 20000 bytes = 0.02 MB
-            # Set max to 0.1 MB to get ~5 slices per file -> 10 files total
+            # Each z-slice has 100*100 = 10000 elements
+            # elements_per_file=50000 gives ~5 slices per file
             split_path = Path(tmpdir) / "tomo_parallel_split"
             anu_ctlab_io.netcdf.dataset_to_netcdf(
                 dataset,
                 split_path,
                 dataset_id="parallel_split_test",
-                max_file_size_mb=0.1,  # Force splitting into multiple blocks
+                elements_per_file=50000,  # Force splitting into multiple blocks
             )
 
             # Verify split files were written correctly

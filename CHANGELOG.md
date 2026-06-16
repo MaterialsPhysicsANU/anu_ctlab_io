@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Add explicit and automatic Zarr chunk/shard layout selection through `chunks` and `shards`, including integer element targets, `"auto"` defaults, `None` to disable sharding, and `0` tuple entries to span an axis
+- Add `dimension_separator_threshold` parameter to `dataset_to_zarr()` to automatically use `"/"` as the chunk key encoding separator when the number of chunks exceeds the threshold (default 64), and `"."` otherwise
+- Allow opening of plain Zarr arrays with no `"mango"` attributes
+  - The voxel size of such datasets is (1, 1, 1) with `VOXEL` units
+- Add `elements_per_file` and `mango_compatible_slices_per_file_rounding` parameter to `dataset_to_netcdf` matching the `mango` default
+
+### Changed
+
+- Change automatic Zarr layouts to use power-of-two square or cubic shapes targeting $32^3$ / $256^2$ subchunks and $512^3$ / $8192$ chunks, trimmed to the dataset shape with subchunks aligned to chunk multiples
+
+### Fixed
+
+- Fix netCDF writing with boolean dataset attributes
+
+### Deprecated
+
+- Deprecate `chunk_size_mb` and `max_shard_size_mb` for Zarr writing; these parameters are now ignored with a warning
+- Deprecate `max_file_size_mb` for NetCDF writing; ignored with a warning
+
 ## [1.2.2] - 2026-04-07
 
 ### Added

@@ -112,18 +112,13 @@ class TestDatasetIdNetCDF:
 
         assert filtered.dataset_id == "20250314_012913_tomoLoRes_SS_cropped_filtered"
 
-    def test_dataset_id_suffix_without_source_id(self, tmp_path):
+    def test_dataset_id_suffix_without_source_id(self, tmp_path, _make_dataset):
         """Test that dataset_id_suffix is ignored if source has no dataset_id."""
-        import dask.array as da
-
-        from anu_ctlab_io._voxel_properties import VoxelUnit
-
         # Create dataset without dataset_id
-        ds = Dataset(
-            data=da.from_array(np.ones((10, 20, 30), dtype=np.float32)),
-            dimension_names=("z", "y", "x"),
-            voxel_unit=VoxelUnit.MM,
-            voxel_size=(1.0, 1.0, 1.0),
+        ds, _ = _make_dataset(
+            (10, 20, 30),
+            datatype=None,
+            data=np.ones((10, 20, 30), dtype=np.float32),
         )
 
         # Try to add suffix - should be ignored
