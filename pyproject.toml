@@ -40,7 +40,7 @@ netcdf = [
 ]
 zarr = [
     "zarr>=3.1.1",
-    "ome-zarr-models>=1.3",
+    "ome-zarr-models>=1.7",
 ]
 all = [
     "anu-ctlab-io[netcdf,zarr]",
