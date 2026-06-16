@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -10,6 +11,7 @@ import dask
 import dask.array as da
 import h5netcdf.legacyapi as nc4  # type: ignore[import-not-found]
 import numpy as np
+from dask.delayed import Delayed
 
 from anu_ctlab_io._dataset import Dataset
 from anu_ctlab_io._datatype import DataType
@@ -19,26 +21,46 @@ from anu_ctlab_io._parse_history import History, serialize_history
 def dataset_to_netcdf(
     dataset: Dataset,
     path: Path | str,
+    # *, # FIXME: Add this on breaking release
     datatype: DataType | str | None = None,
     dataset_id: str | None = None,
-    max_file_size_mb: float | None = 500.0,
+    max_file_size_mb: float | None = None,
     compression_level: int = 0,
     history: History | None = None,
+    # elements_per_file is the mango default of 256 MB per file (mango ignores the element size).
+    elements_per_file: int | None = 256 * 1024 * 1024,
+    mango_compatible_slices_per_file_rounding: bool = True,
+    compute: bool = True,
     **extra_attrs: Any,
-) -> None:
+) -> Delayed | None:
     """Write a :any:`Dataset` to netcdf format.
 
     :param dataset: The :any:`Dataset` to write.
     :param path: Path to write the netcdf file or directory (if splitting).
     :param datatype: Data type identifier. Inferred from dataset if None.
     :param dataset_id: Unique dataset identifier. Auto-generated if not provided.
-    :param max_file_size_mb: Max file size in MB. Data exceeding this is split into
-        multiple files along z-axis. Default 500MB. Set to None for single file.
+    :param max_file_size_mb: Deprecated, ignored. Use ``elements_per_file`` instead.
     :param compression_level: NetCDF compression level (0-9). Default 0 (no compression).
     :param history: History entries to add. Keys are identifiers, values are strings
         or parsed history dicts. If None, uses dataset's history attribute.
+    :param elements_per_file: Number (approximate) of array elements per file.
+        Large arrays are split into multiple files along z-axis.
+        Set to None for single file output. Matches the mango default.
+    :param mango_compatible_slices_per_file_rounding: If True, rounds slices per file calculated from
+        ``elements_per_file`` to a value divisible by common factors
+        (2, 4, 6, 8, 12, 16, 24, 40, 60, 80, 100, 120, 200) to avoid prime numbers, matching mango's behavior.
+        Defaults to True.
+    :param compute: If ``True`` (default), compute immediately. If ``False``, return
+        a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional global attributes to include.
     """
+    if max_file_size_mb is not None:
+        warnings.warn(
+            "max_file_size_mb is deprecated and ignored. Use elements_per_file instead.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
     if isinstance(path, str):
         path = Path(path)
 
@@ -90,15 +112,21 @@ def dataset_to_netcdf(
         **extra_attrs,
     }
 
-    # Determine split strategy
-    if max_file_size_mb is not None:
-        bytes_per_slice = ydim * xdim * np.dtype(datatype._dtype_uncorrected).itemsize
-        slices_per_file = max(
-            1, int((max_file_size_mb * 1024 * 1024) / bytes_per_slice)
-        )
+    # Determine split strategy using mega-elements per file (matches mango default)
+    if elements_per_file is not None:
+        elements_per_slice = ydim * xdim
+        slices_per_file = min(
+            zdim, 1 + int((elements_per_file - 1) // elements_per_slice)
+        )  # Matches mango `slicesPerFile` calculation
+
+        # Apply mango-compatible rounding to avoid prime numbers
+        if mango_compatible_slices_per_file_rounding and slices_per_file < zdim:
+            slices_per_file = _mango_round_slices_per_file(
+                slices_per_file, elements_per_file, elements_per_slice
+            )
 
         if zdim > slices_per_file:
-            _write_split_netcdf(
+            return _write_split_netcdf(
                 data_array,
                 path,
                 datatype,
@@ -106,16 +134,17 @@ def dataset_to_netcdf(
                 common_attrs,
                 compression_level,
                 serialized_history,
+                compute,
             )
-            return
 
-    _write_single_netcdf(
+    return _write_single_netcdf(
         data_array,
         path,
         datatype,
         common_attrs,
         compression_level,
         serialized_history,
+        compute,
     )
 
 
@@ -150,16 +179,18 @@ def _set_global_attributes(
     for key, value in common_attrs.items():  # NOTE: h5netcdf lacks setncatts
         # h5netcdf stores Python str as UTF-8 NC_STRING; encode to bytes so it
         # is stored as ASCII NC_CHAR, matching what the reference files use.
-        ncfile.setncattr(
-            key, np.bytes_(value.encode("ascii")) if isinstance(value, str) else value
-        )
+        # Booleans are not supported by NetCDF, so convert to int.
+        if isinstance(value, str):
+            value = np.bytes_(value.encode("ascii"))
+        elif isinstance(value, bool):
+            value = np.int_(int(value))
+        ncfile.setncattr(key, value)
 
     if include_history and serialized_history:
         for key, value in serialized_history.items():
-            ncfile.setncattr(
-                f"history_{key}",
-                np.bytes_(value.encode("ascii")) if isinstance(value, str) else value,
-            )
+            if isinstance(value, str):
+                value = np.bytes_(value.encode("ascii"))
+            ncfile.setncattr(f"history_{key}", value)
 
 
 def _create_data_variable(
@@ -197,14 +228,15 @@ def _write_single_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     serialized_history: dict[str, str] | None,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write a single netcdf file."""
     if not str(path).endswith(".nc"):
         path = Path(str(path) + ".nc")
 
     zdim, _ydim, _xdim = data_array.shape
-    _write_block(
-        np.asarray(data_array),
+    task: Delayed = dask.delayed(_write_block)(  # type: ignore[attr-defined]
+        data_array,
         path,
         datatype,
         zdim,
@@ -216,6 +248,10 @@ def _write_single_netcdf(
         serialized_history,
         True,
     )
+    if compute:
+        task.compute()  # type: ignore[no-untyped-call]
+        return None
+    return task
 
 
 def _write_block(
@@ -260,7 +296,8 @@ def _write_split_netcdf(
     common_attrs: dict[str, Any],
     compression_level: int,
     serialized_history: dict[str, str] | None,
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write split netcdf files into a directory."""
     dir_path = _get_split_directory_path(base_path)
     dir_path.mkdir(parents=True, exist_ok=True)
@@ -294,7 +331,11 @@ def _write_split_netcdf(
             )
         )
 
-    dask.compute(*tasks)  # type: ignore[attr-defined,no-untyped-call]
+    task: Delayed = dask.delayed(lambda *_: None)(*tasks)  # type: ignore[attr-defined]
+    if compute:
+        task.compute()  # type: ignore[no-untyped-call]
+        return None
+    return task
 
 
 _NUMPY_TO_NETCDF_DTYPE_MAP = {
@@ -319,3 +360,25 @@ def _numpy_to_netcdf_dtype(dtype: np.dtype) -> str:
         return _NUMPY_TO_NETCDF_DTYPE_MAP[dtype]
     except KeyError:
         raise ValueError(f"Unsupported dtype: {dtype}") from None
+
+
+_MANGO_DIVISORS = [2, 4, 6, 8, 12, 16, 24, 40, 60, 80, 100, 120, 200]
+
+
+def _mango_round_slices_per_file(
+    slices_per_file: int,
+    elements_per_file: int,
+    elements_per_slice: int,
+) -> int:
+    """Round slices_per_file to a value divisible by common factors.
+
+    This matches mango's logic to avoid prime numbers for better compression.
+    """
+    for divisor in _MANGO_DIVISORS:
+        # Round up to the next multiple of divisor
+        tmp_value = divisor * ((slices_per_file + divisor // 2) // divisor)
+        t = tmp_value * elements_per_slice
+        if abs(t - elements_per_file) / float(elements_per_file) < 0.08:
+            slices_per_file = tmp_value
+
+    return slices_per_file

@@ -11,6 +11,7 @@ from typing import Any, Literal
 import dask.array as da
 import numpy as np
 import zarr
+from dask.delayed import Delayed, delayed
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import VectorScale
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
@@ -63,8 +64,9 @@ def dataset_to_zarr(
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
     slice_thumbnails: bool | Literal["full"] = True,
+    compute: bool = True,
     **extra_attrs: Any,
-) -> None:
+) -> Delayed | None:
     """Write a :any:`Dataset` to Zarr format.
 
     By default, chunks and shards use power-of-two square or cubic shapes targeting
@@ -106,6 +108,8 @@ def dataset_to_zarr(
         ``'.'``. ``None`` uses the Zarr default of ``'/'``.
     :param slice_thumbnails: Generate middle-plane JPEG thumbnails. Set to ``"full"``
         to also generate full-resolution slices, or ``False`` to disable generation.
+    :param compute: If ``True`` (default), compute immediately. If ``False``, return
+        a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional attributes to include in mango metadata.
     """
     if isinstance(path, str):
@@ -180,7 +184,7 @@ def dataset_to_zarr(
         )
 
     if ome_zarr_version is not None:
-        _write_ome_zarr_group(
+        return _write_ome_zarr_group(
             data_array,
             path,
             dataset,
@@ -190,9 +194,10 @@ def dataset_to_zarr(
             mango_attrs,
             ome_zarr_version,
             slice_thumbnails,
+            compute,
         )
     else:
-        _write_zarr_array(
+        return _write_zarr_array(
             data_array,
             path,
             dataset,
@@ -201,6 +206,7 @@ def dataset_to_zarr(
             create_array_kwargs,
             mango_attrs,
             slice_thumbnails,
+            compute,
         )
 
 
@@ -385,7 +391,8 @@ def _write_ome_zarr_group(
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
     slice_thumbnails: bool | Literal["full"],
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
     In Zarr v3 sharding:
@@ -461,12 +468,14 @@ def _write_ome_zarr_group(
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
-
-    if slice_thumbnails:
-        _write_thumbnails(
-            root, data_array, dataset, include_full=slice_thumbnails == "full"
-        )
+    return _store_and_maybe_write_thumbnails(
+        data_array,
+        array,
+        root,
+        dataset,
+        slice_thumbnails,
+        compute,
+    )
 
 
 def _write_zarr_array(
@@ -478,7 +487,8 @@ def _write_zarr_array(
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     slice_thumbnails: bool | Literal["full"],
-) -> None:
+    compute: bool = True,
+) -> Delayed | None:
     """Write data as a simple Zarr V3 array with mango metadata.
 
     When ``outer_shards`` is provided, Zarr v3 sharding is used:
@@ -515,23 +525,50 @@ def _write_zarr_array(
     write_shape = array.shards or array.chunks
     data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
-    da.store(data_array, array, lock=False, compute=True)  # type: ignore[arg-type]
+    return _store_and_maybe_write_thumbnails(
+        data_array,
+        array,
+        array,
+        dataset,
+        slice_thumbnails,
+        compute,
+    )
 
+
+def _store_and_maybe_write_thumbnails(
+    data_array: da.Array,
+    array: zarr.Array[Any],
+    thumbnail_node: zarr.Array[Any] | zarr.Group,
+    dataset: Dataset,
+    slice_thumbnails: bool | Literal["full"],
+    compute: bool,
+) -> Delayed | None:
+    store_task: Delayed = da.store(data_array, array, lock=False, compute=False)  # type: ignore[arg-type]
+    tasks: list[Delayed] = [store_task]
     if slice_thumbnails:
-        _write_thumbnails(
-            array, data_array, dataset, include_full=slice_thumbnails == "full"
+        tasks.append(
+            _write_thumbnails_task(
+                thumbnail_node,
+                data_array,
+                dataset,
+                include_full=slice_thumbnails == "full",
+            )
         )
 
+    task: Delayed = delayed(lambda *_: None)(*tasks)
+    if compute:
+        task.compute()  # type: ignore[no-untyped-call]
+        return None
+    return task
 
-def _write_thumbnails(
+
+def _write_thumbnails_task(
     node: zarr.Array[Any] | zarr.Group,
     data_array: da.Array,
     dataset: Dataset,
     *,
     include_full: bool,
-) -> None:
-    """Generate and register middle-plane slice thumbnails."""
-    _validate_thumbnail_dimensions(data_array, dataset)
+) -> Delayed:
     dimension_names = dataset.dimension_names
     plane_specs = (
         ("xy", "z", ("y", "x")),
@@ -554,14 +591,30 @@ def _write_thumbnails(
         plane_arrays.append(data_array[tuple(indexer)].transpose(transpose_axes))
         plane_metadata.append((plane_name, slice_axis, slice_index, plane_axes))
 
-    computed_planes = da.compute(*plane_arrays)  # type: ignore[no-untyped-call]
+    task: Delayed = delayed(_write_thumbnail_planes)(
+        node,
+        dataset.mask_value,
+        include_full,
+        plane_metadata,
+        *plane_arrays,
+    )
+    return task
+
+
+def _write_thumbnail_planes(
+    node: zarr.Array[Any] | zarr.Group,
+    mask_value: Any,
+    include_full: bool,
+    plane_metadata: list[tuple[str, str, int, tuple[str, str]]],
+    *computed_planes: np.ndarray[Any, Any],
+) -> None:
+    """Generate and register middle-plane slice thumbnails."""
     planes: dict[str, tuple[np.ndarray[Any, Any], str, int, tuple[str, str]]] = {}
     for metadata, computed_plane in zip(plane_metadata, computed_planes, strict=True):
         plane_name, slice_axis, slice_index, plane_axes = metadata
         plane = np.asarray(computed_plane)
         planes[plane_name] = (plane, slice_axis, slice_index, plane_axes)
 
-    mask_value = dataset.mask_value
     valid_values = []
     valid_masks: dict[str, np.ndarray[Any, np.dtype[np.bool_]]] = {}
     for plane_name, (plane, _, _, _) in planes.items():

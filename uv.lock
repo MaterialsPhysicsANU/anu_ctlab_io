@@ -105,7 +105,7 @@ requires-dist = [
     { name = "lark", specifier = ">=1.2.2" },
     { name = "netcdf4", marker = "extra == 'netcdf'", specifier = ">=1.7.4" },
     { name = "numpy", specifier = ">=2.2.3" },
-    { name = "ome-zarr-models", marker = "extra == 'zarr'", specifier = ">=1.3" },
+    { name = "ome-zarr-models", marker = "extra == 'zarr'", specifier = ">=1.7" },
     { name = "pillow", marker = "extra == 'zarr'", specifier = ">=11.0" },
     { name = "xarray", specifier = ">=2025.1.2" },
     { name = "zarr", marker = "extra == 'zarr'", specifier = ">=3.1.1" },
@@ -885,16 +885,16 @@ wheels = [
 
 [[package]]
 name = "ome-zarr-models"
-version = "1.5"
+version = "1.7"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
     { name = "pydantic-zarr" },
     { name = "zarr" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/61/20/9d92d976cea311a45768c54e6871e8d51ca50129ece03f994384b7a99398/ome_zarr_models-1.5.tar.gz", hash = "sha256:5cd3a36ab9f31dac8c59414d4d2e1252f22ca2269f6bf666a4c77f58a49f3a9c", size = 103981, upload-time = "2026-01-06T14:31:32.231Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/03/17/f4aa0b46a59ba4e7875dc031f5401f709c9fe987bed9932b067c64bac0e2/ome_zarr_models-1.7.tar.gz", hash = "sha256:3979d304f7669e7a22be0bd8a6dd5dcc93fe85af3d842e56930d2ef2e6929090", size = 107192, upload-time = "2026-04-16T12:23:19.147Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/1e/72/ee72a416dae78425d48e4e8b2f0a83014e0db57543c37a8610369cf930ef/ome_zarr_models-1.5-py3-none-any.whl", hash = "sha256:b60de375400f7241ed5cc1fb016e3da40b01ca43824eb8b9e987997f42c851af", size = 61794, upload-time = "2026-01-06T14:31:31.02Z" },
+    { url = "https://files.pythonhosted.org/packages/80/dd/3e3beee6716a4da1b60dc7dfc5d06d697bd015b11ed70c6c0bc0368aabc6/ome_zarr_models-1.7-py3-none-any.whl", hash = "sha256:4e786af38936e62be50cee000c53bf41091ee7d24b0d304570b43147ef34b6bb", size = 64185, upload-time = "2026-04-16T12:23:17.769Z" },
 ]
 
 [[package]]

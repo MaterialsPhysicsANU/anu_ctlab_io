@@ -1,12 +1,11 @@
 from abc import ABC, abstractmethod
 from copy import deepcopy
-from importlib import import_module
 from pathlib import Path
-from types import ModuleType
-from typing import Any, Self, cast
+from typing import Any, NoReturn, Self, cast
 
 import dask.array as da
 import numpy as np
+from dask.delayed import Delayed
 
 from anu_ctlab_io._datatype import DataType, StorageDType
 from anu_ctlab_io._parse_history import History, HistoryValue
@@ -22,7 +21,9 @@ class AbstractDataset(ABC):
         pass
 
     @abstractmethod
-    def to_path(self, path: Path, *, filetype: str = "auto", **kwargs: Any) -> None:
+    def to_path(
+        self, path: Path, *, filetype: str = "auto", compute: bool = True, **kwargs: Any
+    ) -> Delayed | None:
         pass
 
     @property
@@ -75,6 +76,13 @@ class Dataset(AbstractDataset):
     _voxel_size: tuple[np.float32, np.float32, np.float32]
     _history: History
 
+    @staticmethod
+    def _raise_missing_extra(module: str, extra: str, cause: ImportError) -> NoReturn:
+        raise ImportError(
+            f"{module} is missing. Please install with the '{extra}' extra: "
+            f"pip install anu-ctlab-io[{extra}]"
+        ) from cause
+
     def __init__(
         self,
         data: da.Array,
@@ -108,15 +116,6 @@ class Dataset(AbstractDataset):
         self._history = history
         self._dataset_id = dataset_id
 
-    @staticmethod
-    def _import_with_extra(module: str, extra: str) -> ModuleType:
-        try:
-            return import_module(module)
-        except ImportError as e:
-            raise ImportError(
-                f"{module} is missing. Please install with the '{extra}' extra: pip install anu-ctlab-io[{extra}]"
-            ) from e
-
     @classmethod
     def from_path(
         cls,
@@ -137,29 +136,31 @@ class Dataset(AbstractDataset):
         if isinstance(path, str):
             path = Path(path)
 
+        def _from_netcdf() -> Dataset:
+            try:
+                from anu_ctlab_io.netcdf import dataset_from_netcdf
+            except ImportError as e:
+                cls._raise_missing_extra("anu_ctlab_io.netcdf", "netcdf", e)
+            return dataset_from_netcdf(path, parse_history=parse_history, **kwargs)
+
+        def _from_zarr() -> Dataset:
+            try:
+                from anu_ctlab_io.zarr import dataset_from_zarr
+            except ImportError as e:
+                cls._raise_missing_extra("anu_ctlab_io.zarr", "zarr", e)
+            return dataset_from_zarr(path, parse_history=parse_history, **kwargs)
+
         match filetype:
             case "NetCDF":
-                netcdf_mod = cls._import_with_extra("anu_ctlab_io.netcdf", "netcdf")
-                return netcdf_mod.dataset_from_netcdf(  # type: ignore[no-any-return]
-                    path, parse_history=parse_history, **kwargs
-                )
+                return _from_netcdf()
             case "zarr":
-                zarr_mod = cls._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                return zarr_mod.dataset_from_zarr(  # type: ignore[no-any-return]
-                    path, parse_history=parse_history, **kwargs
-                )
+                return _from_zarr()
             case "auto":
                 if path.name[-2:] == "nc":
-                    netcdf_mod = cls._import_with_extra("anu_ctlab_io.netcdf", "netcdf")
-                    return netcdf_mod.dataset_from_netcdf(  # type: ignore[no-any-return]
-                        path, parse_history=parse_history, **kwargs
-                    )
+                    return _from_netcdf()
 
                 if path.name[-4:] == "zarr":
-                    zarr_mod = cls._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                    return zarr_mod.dataset_from_zarr(  # type: ignore[no-any-return]
-                        path, parse_history=parse_history, **kwargs
-                    )
+                    return _from_zarr()
 
         raise (
             ValueError(
@@ -174,8 +175,9 @@ class Dataset(AbstractDataset):
         *,
         filetype: str = "auto",
         dataset_id: str | None = "auto",
+        compute: bool = True,
         **kwargs: Any,
-    ) -> None:
+    ) -> Delayed | None:
         """Writes the :any:`Dataset` to the given ``path``.
 
         The data will be written in one of the ANU mass data storage formats, and the optional extras required for the specific
@@ -189,6 +191,8 @@ class Dataset(AbstractDataset):
             - "auto" (default): Use self.dataset_id if available, otherwise generate new
             - str: Use this exact value
             - None: Generate new (legacy behavior)
+        :param compute: If ``True`` (default), compute immediately. If ``False``, return
+            a :any:`dask.delayed.Delayed` for deferred execution.
         :param kwargs: Additional keyword arguments passed to the format-specific writer.
         """
         if isinstance(path, str):
@@ -204,45 +208,48 @@ class Dataset(AbstractDataset):
         if "dataset_id" not in kwargs:
             kwargs["dataset_id"] = resolved_dataset_id
 
+        def _to_netcdf() -> Delayed | None:
+            try:
+                from anu_ctlab_io.netcdf import dataset_to_netcdf
+            except ImportError as e:
+                self._raise_missing_extra("anu_ctlab_io.netcdf", "netcdf", e)
+            return dataset_to_netcdf(self, path, compute=compute, **kwargs)
+
+        def _to_zarr() -> Delayed | None:
+            try:
+                from anu_ctlab_io.zarr import dataset_to_zarr
+            except ImportError as e:
+                self._raise_missing_extra("anu_ctlab_io.zarr", "zarr", e)
+            return dataset_to_zarr(self, path, compute=compute, **kwargs)
+
+        def _to_raw() -> Delayed | None:
+            from anu_ctlab_io.raw import dataset_to_raw
+
+            return dataset_to_raw(self, path, compute=compute, **kwargs)
+
         match filetype:
             case "NetCDF":
-                netcdf_mod = self._import_with_extra("anu_ctlab_io.netcdf", "netcdf")
-                netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                return
+                return _to_netcdf()
             case "zarr":
-                zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                zarr_mod.dataset_to_zarr(self, path, **kwargs)
-                return
+                return _to_zarr()
             case "raw":
-                raw_mod = import_module("anu_ctlab_io.raw")
-                return raw_mod.dataset_to_raw(self, path, **kwargs)  # type: ignore[no-any-return]
+                return _to_raw()
             case "auto":
                 # Check for explicit extensions
                 if path.name.endswith(".nc") or path.name.endswith("_nc"):
-                    netcdf_mod = self._import_with_extra(
-                        "anu_ctlab_io.netcdf", "netcdf"
-                    )
-                    netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                    return
+                    return _to_netcdf()
 
                 if path.name.endswith(".zarr"):
-                    zarr_mod = self._import_with_extra("anu_ctlab_io.zarr", "zarr")
-                    zarr_mod.dataset_to_zarr(self, path, **kwargs)
-                    return
+                    return _to_zarr()
 
                 if path.name.endswith(".raw"):
-                    raw_mod = import_module("anu_ctlab_io.raw")
-                    return raw_mod.dataset_to_raw(self, path, **kwargs)  # type: ignore[no-any-return]
+                    return _to_raw()
 
                 # Check if datatype is in filename (Mango convention)
                 if self._datatype is not None:
                     datatype_str = str(self._datatype)
                     if datatype_str in path.name:
-                        netcdf_mod = self._import_with_extra(
-                            "anu_ctlab_io.netcdf", "netcdf"
-                        )
-                        netcdf_mod.dataset_to_netcdf(self, path, **kwargs)
-                        return
+                        return _to_netcdf()
 
         raise ValueError(
             "Unable to determine output format from given `path`, perhaps specify `filetype`?",

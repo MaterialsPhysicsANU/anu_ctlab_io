@@ -15,6 +15,13 @@ try:
 except ImportError:
     pytest.skip("Requires 'zarr' extra", allow_module_level=True)
 
+try:
+    import anu_ctlab_io.netcdf
+
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
+
 import anu_ctlab_io
 
 
@@ -1165,3 +1172,99 @@ def test_invalid_slice_thumbnail_mode(_make_dataset, tmp_path):
         anu_ctlab_io.zarr.dataset_to_zarr(
             dataset, tmp_path / "invalid.zarr", slice_thumbnails="invalid"
         )
+
+
+def test_write_slice_thumbnails_compute_false(_make_dataset, tmp_path):
+    import zarr
+
+    dataset, _ = _make_dataset((3, 4, 5), datatype=None)
+    output_path = tmp_path / "lazy_thumbnails.zarr"
+
+    task = anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset, output_path, ome_zarr_version=None, compute=False
+    )
+
+    assert task is not None
+    array = zarr.open_array(output_path, zarr_format=3)
+    assert "thumbnails" not in array.attrs
+    assert not (output_path / "thumbnails").exists()
+
+    task.compute()
+
+    array = zarr.open_array(output_path, zarr_format=3)
+    assert len(array.attrs["thumbnails"]) == 3
+    assert (output_path / "thumbnails/middle_xy_5x4.jpg").exists()
+
+
+def test_read_plain_zarr_array_without_mango():
+    """Test reading a plain Zarr v3 array without mango attributes."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without any mango metadata
+        za = zarr.open_array(
+            output_path,
+            mode="w",
+            shape=shape,
+            dtype=np.float32,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Read it back via dataset_from_zarr
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+
+        # Verify defaults for missing mango attributes
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)
+        assert read_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.VOXEL
+        assert read_dataset.voxel_size == (1.0, 1.0, 1.0)
+        assert read_dataset._datatype is None
+        assert read_dataset.history == {}
+        assert read_dataset._dataset_id is None
+
+
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
+def test_plain_zarr_to_netcdf_requires_datatype():
+    """Test that converting a plain Zarr array to NetCDF requires explicit datatype."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zarr_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without mango metadata
+        za = zarr.open_array(
+            zarr_path,
+            mode="w",
+            shape=shape,
+            dtype=np.uint16,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Load the plain Zarr array
+        dataset = anu_ctlab_io.Dataset.from_path(zarr_path)
+        assert dataset._datatype is None
+
+        # Attempt to write to NetCDF without datatype should fail
+        netcdf_path = Path(tmpdir) / "output.nc"
+        with pytest.raises(ValueError, match="datatype must be provided"):
+            dataset.to_path(netcdf_path, filetype="NetCDF")
+
+        # Writing with explicit datatype should succeed
+        netcdf_path = Path(tmpdir) / "tomo_output.nc"
+        dataset.to_path(netcdf_path, filetype="NetCDF", datatype="tomo")
+        assert netcdf_path.exists()
+
+        # Verify the written NetCDF can be read back
+        read_dataset = anu_ctlab_io.Dataset.from_path(netcdf_path)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)

@@ -3,15 +3,20 @@
 import logging
 from enum import Enum
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 import zarr
 from dask.delayed import Delayed
 
+from anu_ctlab_io._datatype import DataType
+from anu_ctlab_io._voxel_properties import VoxelUnit
+
 logger = logging.getLogger(__name__)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
+
+VALID_DATATYPES = ", ".join(str(dt) for dt in DataType)
 
 
 # TODO: Make part of the library
@@ -36,6 +41,23 @@ class Scheduler(str, Enum):
     distributed_mpi = "distributed-mpi"
 
 
+def _parse_voxel_size(value: str) -> tuple[float, float, float]:
+    """Parse a comma-separated string into a tuple of three floats."""
+    parts = [x.strip() for x in value.split(",")]
+    if len(parts) != 3:
+        raise typer.BadParameter(
+            "Voxel size must be three comma-separated values (e.g., 0.5,0.5,0.5).",
+            param_hint="--voxel-size",
+        )
+    try:
+        return (float(parts[0]), float(parts[1]), float(parts[2]))
+    except ValueError as e:
+        raise typer.BadParameter(
+            f"Voxel size values must be numbers: {value}",
+            param_hint="--voxel-size",
+        ) from e
+
+
 def cli(
     input: Annotated[Path, typer.Argument(help="Input file path.")],
     output: Annotated[Path, typer.Argument(help="Output file path.")],
@@ -52,6 +74,13 @@ def cli(
             help="Output format (default: auto-detect from extension).",
         ),
     ] = OutputStorageFormat.auto,
+    datatype: Annotated[
+        str | None,
+        typer.Option(
+            "--datatype",
+            help=f"Datatype to use when writing. Valid types: {VALID_DATATYPES}. Required when converting plain Zarr arrays without mango attributes to NetCDF.",
+        ),
+    ] = None,
     scheduler: Annotated[
         Scheduler,
         typer.Option(
@@ -59,6 +88,20 @@ def cli(
             help="Dask scheduler to use.",
         ),
     ] = Scheduler.threads,
+    voxel_size: Annotated[
+        str | None,
+        typer.Option(
+            "--voxel-size",
+            help="Override voxel size as three comma-separated values (e.g., 0.5,0.5,0.5).",
+        ),
+    ] = None,
+    voxel_unit: Annotated[
+        VoxelUnit | None,
+        typer.Option(
+            "--voxel-unit",
+            help="Override voxel unit (e.g., nm, um, mm, angstrom).",
+        ),
+    ] = None,
     log_level: Annotated[
         str,
         typer.Option(
@@ -86,7 +129,15 @@ def cli(
             from dask.distributed import Client, progress, wait
 
             with Client() as client:
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(
+                    input,
+                    output,
+                    input_format,
+                    output_format,
+                    datatype,
+                    _parse_voxel_size(voxel_size) if voxel_size else None,
+                    voxel_unit,
+                )
                 if result is not None:
                     future = client.compute(result)
                     progress(future)
@@ -98,8 +149,18 @@ def cli(
         case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
             from dask.diagnostics import ProgressBar
 
+            parsed_voxel_size = _parse_voxel_size(voxel_size) if voxel_size else None
+
             with ProgressBar():
-                result = _convert(input, output, input_format, output_format)
+                result = _convert(
+                    input,
+                    output,
+                    input_format,
+                    output_format,
+                    datatype,
+                    parsed_voxel_size,
+                    voxel_unit,
+                )
                 if result is not None:
                     result.compute(scheduler=scheduler.value)
 
@@ -133,14 +194,37 @@ def _convert(
     output: Path,
     input_format: InputStorageFormat,
     output_format: OutputStorageFormat,
+    datatype: str | None = None,
+    voxel_size: tuple[float, float, float] | None = None,
+    voxel_unit: VoxelUnit | None = None,
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
     dataset = Dataset.from_path(input, filetype=input_format.value)
+
+    # Apply voxel overrides if provided
+    if voxel_size is not None:
+        dataset._voxel_size = voxel_size
+    if voxel_unit is not None:
+        dataset._voxel_unit = voxel_unit
+
     logger.info("Input: %s", input)
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
-    return dataset.to_path(output, filetype=output_format.value, compute=False)
+    kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
+    if datatype is not None:
+        kwargs["datatype"] = datatype
+    try:
+        return dataset.to_path(output, **kwargs)
+    except ValueError as e:
+        if "datatype must be provided" in str(e):
+            raise typer.BadParameter(
+                f"No datatype could be inferred from the input dataset. "
+                f"Please specify one explicitly using --datatype. "
+                f"Valid datatypes are: {VALID_DATATYPES}",
+                param_hint="--datatype",
+            ) from e
+        raise
 
 
 def main() -> None:
