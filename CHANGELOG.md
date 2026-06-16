@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Add `dimension_separator_threshold` parameter to `dataset_to_zarr()` to automatically use `"/"` as the chunk key encoding separator when the number of chunks exceeds the threshold (default 64), and `"."` otherwise
 - Allow opening of plain Zarr arrays with no `"mango"` attributes
   - The voxel size of such datasets is (1, 1, 1) with `VOXEL` units
-- Add `elements_per_file` parameter to `dataset_to_netcdf` matching the `mango` default
+- Add `elements_per_file` and `mango_compatible_slices_per_file_rounding` parameter to `dataset_to_netcdf` matching the `mango` default
 
 ### Changed
 
