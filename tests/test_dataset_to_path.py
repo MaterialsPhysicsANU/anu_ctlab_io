@@ -66,7 +66,7 @@ def test_to_path_with_split(_make_dataset):
         output_path = Path(tmpdir) / "tomo_split"
 
         # Use to_path with splitting
-        dataset.to_path(output_path, dataset_id="test_split", max_file_size_mb=0.05)
+        dataset.to_path(output_path, dataset_id="test_split", elements_per_file=1048)
 
         # Should have created directory
         dir_path = Path(str(output_path) + "_nc")
@@ -127,7 +127,7 @@ def test_to_path_split_with_nc_extension(_make_dataset):
         output_path = Path(tmpdir) / "tomo_output.nc"
 
         # Write with splitting
-        dataset.to_path(output_path, dataset_id="test_nc_split", max_file_size_mb=0.05)
+        dataset.to_path(output_path, dataset_id="test_nc_split", elements_per_file=1048)
 
         # Should have created directory with .nc replaced by _nc
         expected_dir = Path(tmpdir) / "tomo_output_nc"
