@@ -14,6 +14,13 @@ try:
 except ImportError:
     pytest.skip("Requires 'zarr' extra", allow_module_level=True)
 
+try:
+    import anu_ctlab_io.netcdf
+
+    _HAS_NETCDF = True
+except ImportError:
+    _HAS_NETCDF = False
+
 import anu_ctlab_io
 
 
@@ -992,6 +999,7 @@ def test_read_plain_zarr_array_without_mango():
         assert read_dataset._dataset_id is None
 
 
+@pytest.mark.skipif(not _HAS_NETCDF, reason="Requires 'netcdf' extra")
 def test_plain_zarr_to_netcdf_requires_datatype():
     """Test that converting a plain Zarr array to NetCDF requires explicit datatype."""
     import zarr
