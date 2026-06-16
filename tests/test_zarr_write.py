@@ -957,3 +957,76 @@ def test_size_parameters_and_explicit_shapes(_make_dataset):
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_read_plain_zarr_array_without_mango():
+    """Test reading a plain Zarr v3 array without mango attributes."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.float32).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without any mango metadata
+        za = zarr.open_array(
+            output_path,
+            mode="w",
+            shape=shape,
+            dtype=np.float32,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Read it back via dataset_from_zarr
+        read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+
+        # Verify defaults for missing mango attributes
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)
+        assert read_dataset.voxel_unit == anu_ctlab_io.VoxelUnit.VOXEL
+        assert read_dataset.voxel_size == (1.0, 1.0, 1.0)
+        assert read_dataset._datatype is None
+        assert read_dataset.history == {}
+        assert read_dataset._dataset_id is None
+
+
+def test_plain_zarr_to_netcdf_requires_datatype():
+    """Test that converting a plain Zarr array to NetCDF requires explicit datatype."""
+    import zarr
+
+    shape = (10, 20, 30)
+    data = np.arange(np.prod(shape), dtype=np.uint16).reshape(shape)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        zarr_path = Path(tmpdir) / "plain.zarr"
+        # Create a plain Zarr v3 array without mango metadata
+        za = zarr.open_array(
+            zarr_path,
+            mode="w",
+            shape=shape,
+            dtype=np.uint16,
+            zarr_format=3,
+            dimension_names=("z", "y", "x"),
+        )
+        za[:] = data
+
+        # Load the plain Zarr array
+        dataset = anu_ctlab_io.Dataset.from_path(zarr_path)
+        assert dataset._datatype is None
+
+        # Attempt to write to NetCDF without datatype should fail
+        netcdf_path = Path(tmpdir) / "output.nc"
+        with pytest.raises(ValueError, match="datatype must be provided"):
+            dataset.to_path(netcdf_path, filetype="NetCDF")
+
+        # Writing with explicit datatype should succeed
+        netcdf_path = Path(tmpdir) / "tomo_output.nc"
+        dataset.to_path(netcdf_path, filetype="NetCDF", datatype="tomo")
+        assert netcdf_path.exists()
+
+        # Verify the written NetCDF can be read back
+        read_dataset = anu_ctlab_io.Dataset.from_path(netcdf_path)
+        assert read_dataset.data.shape == shape
+        assert np.array_equal(read_dataset.data.compute(), data)
