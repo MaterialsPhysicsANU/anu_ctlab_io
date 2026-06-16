@@ -1,6 +1,9 @@
 [files]
 extend-exclude = ["tests/data/*"]
 
+[default]
+extend-ignore-re = ["(?Rm)^.*(#|//)\\s*spellchecker:disable-line$"]
+
 [default.extend-words]
 # Don't correct "ome" to "some"
 ome = "ome"
