@@ -9,12 +9,11 @@ import typer
 import zarr
 from dask.delayed import Delayed
 
+from anu_ctlab_io._datatype import DataType
+
 logger = logging.getLogger(__name__)
 
 zarr.config.set({"codec_pipeline.path": "zarrs.ZarrsCodecPipeline"})
-
-# Build datatype list for help text at import time
-from anu_ctlab_io._datatype import DataType
 
 VALID_DATATYPES = ", ".join(str(dt) for dt in DataType)
 

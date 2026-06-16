@@ -52,7 +52,7 @@ def _dataset_from_zarr_array(path: Path, **kwargs: Any) -> Dataset:
     if "mango" not in za.attrs:
         # Handle a plain Zarr array that has no mango attributes
         voxel_unit = VoxelUnit.VOXEL
-        voxel_size = (1.0, 1.0, 1.0)
+        voxel_size = (np.float32(1.0), np.float32(1.0), np.float32(1.0))
         datatype = None
         history: History = {}
         dataset_id = None
