@@ -10,7 +10,7 @@ import anu_ctlab_io
 import anu_ctlab_io.netcdf
 
 SHAPE = (10000, 3000, 3000)
-MAX_FILE_SIZE_MB = 500
+ELEMENTS_PER_FILE = 256 * 1024 * 1024
 
 
 def run(client: Client) -> None:
@@ -50,7 +50,7 @@ def run(client: Client) -> None:
         dataset,
         output_dir / "tomoHiRes_nc",
         compression_level=0,
-        max_file_size_mb=MAX_FILE_SIZE_MB,
+        elements_per_file=ELEMENTS_PER_FILE,
     )
 
 
