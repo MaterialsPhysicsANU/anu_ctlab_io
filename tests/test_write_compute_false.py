@@ -104,20 +104,20 @@ def test_netcdf_split_compute_false_concurrent():
     hi = _make_dataset(data[20:])
 
     with tempfile.TemporaryDirectory() as tmpdir:
-        # Each z-slice is 16*16*2 = 512 bytes; max_file_size_mb=0.005 => ~10 slices/file
+        # Each z-slice is 16*16 = 256 elements; elements_per_file=2560 => ~10 slices/file
         path_lo = Path(tmpdir) / "tomo_lo"
         path_hi = Path(tmpdir) / "tomo_hi"
 
         task_lo = lo.to_path(
             path_lo,
             dataset_id="lo",
-            max_file_size_mb=0.005,
+            elements_per_file=2560,
             compute=False,
         )
         task_hi = hi.to_path(
             path_hi,
             dataset_id="hi",
-            max_file_size_mb=0.005,
+            elements_per_file=2560,
             compute=False,
         )
 
