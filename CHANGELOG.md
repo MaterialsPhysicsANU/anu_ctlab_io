@@ -16,6 +16,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Change automatic Zarr layouts to use power-of-two square or cubic shapes targeting $32^3$ / $256^2$ subchunks and $512^3$ / $8192$ chunks, trimmed to the dataset shape with subchunks aligned to chunk multiples
 
+### Fixed
+
+- Fix netCDF writing with boolean dataset attributes
+
 ### Deprecated
 
 - Deprecate `chunk_size_mb` and `max_shard_size_mb` for Zarr writing; these parameters are now ignored with a warning
