@@ -1,5 +1,6 @@
 """Write data to the ANU CTLab zarr data format."""
 
+import logging
 import warnings
 from datetime import datetime
 from enum import Enum
@@ -20,6 +21,8 @@ from anu_ctlab_io._datatype import DataType
 from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
+
+logger = logging.getLogger(__name__)
 
 _DEFAULT_CHUNK_ELEMENTS = max(8192**2, 512**3)
 _DEFAULT_SUBCHUNK_ELEMENTS = max(256**2, 32**3)
@@ -106,6 +109,24 @@ def dataset_to_zarr(
     if isinstance(path, str):
         path = Path(path)
 
+    logger.debug(
+        "Writing dataset to Zarr: path=%s, datatype=%s, dataset_id=%s, "
+        "ome_zarr_version=%s, chunks=%s, shards=%s, input_aligned_chunks=%s, "
+        "dimension_separator_threshold=%s, compute=%s, create_array_kwargs=%s, "
+        "extra_attrs=%s",
+        path,
+        datatype,
+        dataset_id,
+        ome_zarr_version,
+        chunks,
+        shards,
+        input_aligned_chunks,
+        dimension_separator_threshold,
+        compute,
+        create_array_kwargs,
+        sorted(extra_attrs),
+    )
+
     if datatype is None:
         if dataset._datatype is not None:
             datatype = dataset._datatype
@@ -120,6 +141,14 @@ def dataset_to_zarr(
         dataset_id = f"{timestamp}_{datatype}"
 
     data_array = dataset.data
+    logger.debug(
+        "Input dask array: shape=%s, dtype=%s, chunks=%s, chunksize=%s, npartitions=%s",
+        data_array.shape,
+        data_array.dtype,
+        data_array.chunks,
+        data_array.chunksize,
+        data_array.npartitions,
+    )
 
     ignored_size_args = ", ".join(
         name
@@ -146,6 +175,12 @@ def dataset_to_zarr(
         subchunks=chunks if shards is not None else None,
         aligned_chunks=data_array.chunks if input_aligned_chunks else None,
     )
+    logger.debug(
+        "Resolved Zarr layout: chunks=%s, subchunks=%s, rechunk_before_store=%s",
+        chunks,
+        subchunks,
+        not input_aligned_chunks,
+    )
 
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:
@@ -158,8 +193,14 @@ def dataset_to_zarr(
         create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
             data_array.shape, chunks, dimension_separator_threshold
         )
+        logger.debug(
+            "Selected chunk key encoding: key_chunks=%s, encoding=%s",
+            chunks,
+            create_array_kwargs["chunk_key_encoding"],
+        )
 
     if ome_zarr_version is not None:
+        logger.debug("Writing OME-Zarr group with version %s", ome_zarr_version)
         return _write_ome_zarr_group(
             data_array,
             path,
@@ -173,6 +214,7 @@ def dataset_to_zarr(
             compute=compute,
         )
     else:
+        logger.debug("Writing plain Zarr array")
         return _write_zarr_array(
             data_array,
             path,
@@ -619,6 +661,16 @@ def _write_ome_zarr_group(
         overwrite=True,
         **create_array_kwargs,
     )
+    logger.debug(
+        "Created OME-Zarr array: path=%s, shape=%s, dtype=%s, chunks=%s, shards=%s, "
+        "dimension_names=%s",
+        path,
+        array.shape,
+        array.dtype,
+        array.chunks,
+        array.shards,
+        dimension_names,
+    )
 
     # Always rechunk to the write granularity of the Zarr array before writing.
     # If using sharding, the write granularity is the shard shape (`.shards`).
@@ -627,7 +679,17 @@ def _write_ome_zarr_group(
     # The straddling chunks/shards w.r.t the array shape need no special handling.
     if rechunk_before_store:
         write_shape = array.shards or array.chunks
+        logger.debug(
+            "Rechunking input for OME-Zarr write: source_chunks=%s, write_shape=%s",
+            data_array.chunks,
+            write_shape,
+        )
         data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+    else:
+        logger.debug(
+            "Skipping input rechunk for OME-Zarr write: source_chunks=%s",
+            data_array.chunks,
+        )
 
     # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
     # chunk sizes that are not multiples of the shard shape, causing misaligned writes
@@ -677,6 +739,16 @@ def _write_zarr_array(
         overwrite=True,
         **create_array_kwargs,
     )
+    logger.debug(
+        "Created Zarr array: path=%s, shape=%s, dtype=%s, chunks=%s, shards=%s, "
+        "dimension_names=%s",
+        path,
+        array.shape,
+        array.dtype,
+        array.chunks,
+        array.shards,
+        dimension_names,
+    )
 
     if mango_attrs:
         array.attrs["mango"] = mango_attrs
@@ -685,7 +757,17 @@ def _write_zarr_array(
     # See comment in _write_ome_zarr_group for explanation.
     if rechunk_before_store:
         write_shape = array.shards or array.chunks
+        logger.debug(
+            "Rechunking input for Zarr write: source_chunks=%s, write_shape=%s",
+            data_array.chunks,
+            write_shape,
+        )
         data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+    else:
+        logger.debug(
+            "Skipping input rechunk for Zarr write: source_chunks=%s",
+            data_array.chunks,
+        )
 
     result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
     return result
