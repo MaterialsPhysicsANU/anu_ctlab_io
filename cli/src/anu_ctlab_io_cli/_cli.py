@@ -212,6 +212,10 @@ def _convert(
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
+    if output_format == OutputStorageFormat.zarr or (
+        output_format == OutputStorageFormat.auto and output.name.endswith(".zarr")
+    ):
+        kwargs["input_aligned_chunks"] = True
     if datatype is not None:
         kwargs["datatype"] = datatype
     try:
