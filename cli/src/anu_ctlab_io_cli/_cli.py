@@ -189,6 +189,19 @@ def _print_dataset_info(dataset) -> None:
     logger.info("  voxel size: (%s, %s, %s) %s", vz, vy, vx, dataset.voxel_unit)
 
 
+def _input_is_netcdf(path: Path, input_format: InputStorageFormat) -> bool:
+    return input_format == InputStorageFormat.netcdf or (
+        input_format == InputStorageFormat.auto
+        and (path.name.endswith(".nc") or path.name.endswith("_nc"))
+    )
+
+
+def _output_is_zarr(path: Path, output_format: OutputStorageFormat) -> bool:
+    return output_format == OutputStorageFormat.zarr or (
+        output_format == OutputStorageFormat.auto and path.name.endswith(".zarr")
+    )
+
+
 def _convert(
     input: Path,
     output: Path,
@@ -200,7 +213,14 @@ def _convert(
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
-    dataset = Dataset.from_path(input, filetype=input_format.value)
+    converting_netcdf_to_zarr = _input_is_netcdf(
+        input, input_format
+    ) and _output_is_zarr(output, output_format)
+    read_kwargs: dict[str, Any] = {}
+    if converting_netcdf_to_zarr:
+        read_kwargs["ignore_block_chunks"] = True
+
+    dataset = Dataset.from_path(input, filetype=input_format.value, **read_kwargs)
 
     # Apply voxel overrides if provided
     if voxel_size is not None:
@@ -212,9 +232,7 @@ def _convert(
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
-    if output_format == OutputStorageFormat.zarr or (
-        output_format == OutputStorageFormat.auto and output.name.endswith(".zarr")
-    ):
+    if _output_is_zarr(output, output_format):
         kwargs["input_aligned_chunks"] = True
     if datatype is not None:
         kwargs["datatype"] = datatype
