@@ -1,6 +1,8 @@
 """CLI entry point for anu-ctlab-io."""
 
 import logging
+import os
+from contextlib import nullcontext
 from enum import Enum
 from pathlib import Path
 from typing import Annotated, Any
@@ -58,6 +60,19 @@ def _parse_voxel_size(value: str) -> tuple[float, float, float]:
         ) from e
 
 
+def _default_workers() -> int:
+    return os.cpu_count() or 1
+
+
+def _validate_workers(workers: int) -> int:
+    if workers < 1:
+        raise typer.BadParameter(
+            "Worker count must be at least 1.",
+            param_hint="--workers",
+        )
+    return workers
+
+
 def cli(
     input: Annotated[Path, typer.Argument(help="Input file path.")],
     output: Annotated[Path, typer.Argument(help="Output file path.")],
@@ -88,6 +103,14 @@ def cli(
             help="Dask scheduler to use.",
         ),
     ] = Scheduler.threads,
+    workers: Annotated[
+        int,
+        typer.Option(
+            "--workers",
+            "-j",
+            help="Number of local Dask workers/threads to use. Defaults to one per logical CPU.",
+        ),
+    ] = _default_workers(),
     voxel_size: Annotated[
         str | None,
         typer.Option(
@@ -112,6 +135,7 @@ def cli(
 ) -> None:
     """Convert between ANU CTLab array formats."""
     logging.getLogger().setLevel(log_level.upper())
+    workers = _validate_workers(workers)
     match scheduler:
         case Scheduler.distributed_mpi | Scheduler.distributed:
             if scheduler == Scheduler.distributed_mpi:
@@ -124,32 +148,59 @@ def cli(
                         param_hint="--scheduler",
                     ) from e
 
-                initialize()  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
-
-            from dask.distributed import Client, progress, wait
-
-            with Client() as client:
-                result = _convert(
-                    input,
-                    output,
-                    input_format,
-                    output_format,
-                    datatype,
-                    _parse_voxel_size(voxel_size) if voxel_size else None,
-                    voxel_unit,
+                logger.debug(
+                    "Dask scheduler: %s; workers are provided by MPI ranks; threads per worker: 1",
+                    scheduler.value,
                 )
-                if result is not None:
-                    future = client.compute(result)
-                    progress(future)
-                    wait(future)
-            if scheduler == Scheduler.distributed_mpi:
-                import os
+                initialize(
+                    nthreads=1
+                )  # ranks 0 and 2+ block here as scheduler/workers; only rank 1 returns
 
+            from dask.distributed import Client, LocalCluster, progress, wait
+
+            if scheduler == Scheduler.distributed:
+                logger.debug(
+                    "Dask scheduler: %s; workers: %s; threads per worker: 1",
+                    scheduler.value,
+                    workers,
+                )
+                cluster_context = LocalCluster(n_workers=workers, threads_per_worker=1)
+                client_or_address: Any = None
+            else:
+                cluster_context = nullcontext(None)
+                client_or_address = None
+
+            with cluster_context as cluster:
+                if cluster is not None:
+                    client_or_address = cluster
+                with Client(client_or_address) as client:
+                    result = _convert(
+                        input,
+                        output,
+                        input_format,
+                        output_format,
+                        datatype,
+                        _parse_voxel_size(voxel_size) if voxel_size else None,
+                        voxel_unit,
+                    )
+                    if result is not None:
+                        future = client.compute(result)
+                        progress(future)
+                        wait(future)
+            if scheduler == Scheduler.distributed_mpi:
                 os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
         case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
             from dask.diagnostics import ProgressBar
 
             parsed_voxel_size = _parse_voxel_size(voxel_size) if voxel_size else None
+            if scheduler == Scheduler.synchronous:
+                logger.debug("Dask scheduler: %s; workers: 1", scheduler.value)
+            else:
+                logger.debug(
+                    "Dask scheduler: %s; workers: %s",
+                    scheduler.value,
+                    workers,
+                )
 
             with ProgressBar():
                 result = _convert(
@@ -162,7 +213,10 @@ def cli(
                     voxel_unit,
                 )
                 if result is not None:
-                    result.compute(scheduler=scheduler.value)
+                    if scheduler == Scheduler.synchronous:
+                        result.compute(scheduler=scheduler.value)
+                    else:
+                        result.compute(scheduler=scheduler.value, num_workers=workers)
 
 
 def _fmt_bytes(n: float) -> str:
