@@ -6,6 +6,9 @@ docs:
 test:
     uvx --with tox-uv tox
 
+lint:
+    uvx pre-commit run --all-files
+
 bench:
     uv run --group bench --all-extras pytest benches/ -v
 
