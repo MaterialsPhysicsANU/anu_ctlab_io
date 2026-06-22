@@ -29,7 +29,11 @@ __all__ = [
 
 
 def dataset_from_netcdf(
-    path: Path, *, parse_history: bool = True, **kwargs: Any
+    path: Path,
+    *,
+    parse_history: bool = True,
+    ignore_block_chunks: bool = False,
+    **kwargs: Any,
 ) -> Dataset:
     """Loads a :any:`Dataset` from the path to a netcdf.
 
@@ -37,10 +41,14 @@ def dataset_from_netcdf(
 
     :param Path: The path to the netcdf or directory of split netcdf blocks to be loaded.
     :param parse_history: Whether to parse the history of the netcdf file. Defaults to ``True``, but disableable because the parser is currently not guaranteed to succeed.
+    :param ignore_block_chunks: Ignore chunking stored inside NetCDF files and
+        treat each opened NetCDF file/block as one Dask chunk. Defaults to ``False``.
     :param kwargs: Currently this method consumes no kwargs, but will pass provided kwargs to ``Xarray.open_mfdataset``.
     :raises lark.exceptions.UnexpectedInput: Raised if ``parse_history=True`` and the parser fails to parse the specific history provided."""
     datatype = DataType.infer_from_path(path)
-    dataset = _read_netcdf(path, datatype, **kwargs)
+    dataset = _read_netcdf(
+        path, datatype, ignore_block_chunks=ignore_block_chunks, **kwargs
+    )
     dataset = dataset.rename(_transform_data_vars(dataset, datatype))
     dataset["data"] = dataset.data.astype(datatype.dtype)
     dataset.attrs = _update_attrs(dataset.attrs, parse_history)
@@ -87,8 +95,16 @@ def _update_attrs(attrs: dict[str, Any], parse_history_p: bool) -> dict[str, Any
     return new_attrs
 
 
-def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Dataset:
+def _read_netcdf(
+    path: Path | str,
+    datatype: DataType,
+    *,
+    ignore_block_chunks: bool = False,
+    **kwargs: Any,
+) -> xr.Dataset:
     path = os.path.normpath(os.path.expanduser(path))
+    kwargs.setdefault("chunks", -1 if ignore_block_chunks else {})
+
     if os.path.isdir(path):
         possible_files = [os.path.join(path, p) for p in os.listdir(path)]
         files = sorted(list(filter(os.path.isfile, possible_files)))
@@ -113,7 +129,6 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
             f"Could not read netCDF files in {path} with any available engine."
         ) from last_exc
     else:
-        chunks = kwargs.pop("chunks", -1)
         last_exc = None
         for engine in _read_engines():
             try:
@@ -121,7 +136,6 @@ def _read_netcdf(path: Path | str, datatype: DataType, **kwargs: Any) -> xr.Data
                     path,
                     engine=engine,
                     mask_and_scale=False,
-                    chunks=chunks,
                     **kwargs,
                 )
             except OSError as e:
