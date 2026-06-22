@@ -338,6 +338,7 @@ def _resolve_input_aligned_zarr_layout(
     subchunks: ChunkSpec | None,
 ) -> tuple[ChunkShape, ChunkShape | None]:
     aligned_chunk_shape = _regular_aligned_chunk_shape(aligned_chunks)
+    axis_spans_array = _aligned_chunk_axes_span_array(shape, aligned_chunks)
 
     if subchunks is None:
         if chunks == "auto":
@@ -354,14 +355,21 @@ def _resolve_input_aligned_zarr_layout(
         return resolved_chunks, None
 
     if chunks == "auto":
-        resolved_chunks = aligned_chunk_shape
+        resolved_chunks = _input_aligned_chunk_shape(
+            shape=shape,
+            aligned_chunk_shape=aligned_chunk_shape,
+            axis_spans_array=axis_spans_array,
+            subchunks=subchunks,
+        )
     elif isinstance(chunks, tuple):
         resolved_chunks = _normalize_input_aligned_tuple(chunks, aligned_chunk_shape)
     else:
         resolved_chunks = _input_aligned_subchunk_shape(
             shape, aligned_chunk_shape, chunks
         )
-    _validate_aligned_write_shape(aligned_chunk_shape, resolved_chunks)
+    _validate_aligned_write_shape(
+        aligned_chunk_shape, resolved_chunks, axis_spans_array=axis_spans_array
+    )
 
     resolved_subchunks = (
         _normalize_input_aligned_tuple(subchunks, resolved_chunks)
@@ -370,6 +378,16 @@ def _resolve_input_aligned_zarr_layout(
     )
     _validate_subchunks_divide_write_shape(resolved_subchunks, resolved_chunks)
     return resolved_chunks, resolved_subchunks
+
+
+def _aligned_chunk_axes_span_array(
+    shape: ChunkShape,
+    aligned_chunks: tuple[tuple[int, ...], ...],
+) -> tuple[bool, ...]:
+    return tuple(
+        len(axis_chunks) == 1 and int(axis_chunks[0]) == axis_size
+        for axis_size, axis_chunks in zip(shape, aligned_chunks, strict=True)
+    )
 
 
 def _regular_aligned_chunk_shape(
@@ -417,6 +435,46 @@ def _normalize_input_aligned_tuple(
     return resolved
 
 
+def _input_aligned_chunk_shape(
+    *,
+    shape: ChunkShape,
+    aligned_chunk_shape: ChunkShape,
+    axis_spans_array: tuple[bool, ...],
+    subchunks: ChunkSpec,
+) -> ChunkShape:
+    subchunk_shape = _input_aligned_chunk_expansion_subchunk_shape(shape, subchunks)
+    auto_chunk_edge = _input_aligned_auto_chunk_edge(shape)
+    return tuple(
+        _round_up_to_multiple(axis_size, subchunk_size)
+        if axis_spans and axis_size >= auto_chunk_edge
+        else aligned_size
+        for axis_size, aligned_size, axis_spans, subchunk_size in zip(
+            shape, aligned_chunk_shape, axis_spans_array, subchunk_shape, strict=True
+        )
+    )
+
+
+def _input_aligned_auto_chunk_edge(shape: ChunkShape) -> int:
+    is_2d = len(shape) == 3 and shape[0] == 1
+    dimensions = 2 if is_2d else len(shape)
+    return _power_of_two_edge(_DEFAULT_CHUNK_ELEMENTS, dimensions)
+
+
+def _input_aligned_chunk_expansion_subchunk_shape(
+    shape: ChunkShape,
+    subchunks: ChunkSpec,
+) -> ChunkShape:
+    if subchunks == "auto":
+        subchunks = _DEFAULT_SUBCHUNK_ELEMENTS
+    if isinstance(subchunks, int):
+        return _auto_shape(shape, subchunks)
+    assert isinstance(subchunks, tuple)
+    return tuple(
+        axis_size if size == 0 else size
+        for axis_size, size in zip(shape, subchunks, strict=True)
+    )
+
+
 def _input_aligned_subchunk_shape(
     shape: ChunkShape,
     write_shape: ChunkShape,
@@ -445,8 +503,34 @@ def _largest_divisor_at_most(value: int, limit: int) -> int:
 def _validate_aligned_write_shape(
     aligned_chunk_shape: ChunkShape,
     write_shape: ChunkShape,
+    *,
+    axis_spans_array: tuple[bool, ...] | None = None,
 ) -> None:
-    _validate_subchunks_divide_write_shape(write_shape, aligned_chunk_shape)
+    if axis_spans_array is None:
+        axis_spans_array = (False,) * len(aligned_chunk_shape)
+
+    if len(write_shape) != len(aligned_chunk_shape):
+        raise ValueError(
+            "write shape must have the same dimensions as aligned chunks. "
+            f"Got {write_shape} and {aligned_chunk_shape}."
+        )
+    for axis, (write_size, aligned_size, axis_spans) in enumerate(
+        zip(write_shape, aligned_chunk_shape, axis_spans_array, strict=True)
+    ):
+        if write_size <= 0:
+            raise ValueError(f"write shape sizes must be positive. Got {write_shape}.")
+        if axis_spans:
+            if write_size < aligned_size:
+                raise ValueError(
+                    "input_aligned_chunks requires expanded span axes to cover the "
+                    f"aligned chunk. Axis {axis}: {write_size} is smaller than {aligned_size}."
+                )
+            continue
+        if aligned_size % write_size != 0:
+            raise ValueError(
+                "input_aligned_chunks requires write shape to evenly divide the "
+                f"aligned chunk shape. Axis {axis}: {write_size} does not divide {aligned_size}."
+            )
 
 
 def _validate_subchunks_divide_write_shape(

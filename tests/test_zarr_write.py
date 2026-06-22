@@ -862,6 +862,33 @@ def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chun
     assert subchunks == (4, 4, 4)
 
 
+@pytest.mark.parametrize(
+    ("shape", "aligned_chunks", "chunks", "subchunks"),
+    [
+        # One chunk on XY, subchunk doesn't evenly divide. Zarr chunk expands to accommodate.
+        ((32, 2914, 2914), ((32,), (2914,), (2914,)), (32, 2944, 2944), (32, 32, 32)),
+        ((32, 997, 997), ((32,), (997,), (997,)), (32, 1024, 1024), (32, 32, 32)),
+        # Multiple chunks on XY with prime number sizes. Mango cannot create this, but this checks rechunking still doesn't occur even though the subchunk size is highly suboptimal
+        (
+            (32, 997 * 2, 997 * 2),
+            ((32,), (997, 997), (997, 997)),
+            (32, 997, 997),
+            (32, 1, 1),
+        ),
+    ],
+)
+def test_resolve_zarr_layout_edge_and_prime(shape, aligned_chunks, chunks, subchunks):
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(68, 2914, 2914),
+        chunks="auto",
+        subchunks="auto",
+        aligned_chunks=aligned_chunks,
+    )
+
+    assert chunks == chunks
+    assert subchunks == subchunks
+
+
 def test_normalize_explicit_shapes_uses_internal_chunk_subchunk_order():
     chunks, subchunks = anu_ctlab_io.zarr._writer._normalize_explicit_shapes(
         shape=(60, 40, 50),
@@ -1100,6 +1127,39 @@ def test_input_aligned_chunks_skips_writer_rechunk(_make_dataset):
                 slice_thumbnails=False,
                 input_aligned_chunks=True,
             )
+
+
+@pytest.mark.parametrize(
+    ("shape", "chunks"),
+    [
+        ((68, 2914, 2914), ((32,) * 2 + (4,), (2914,), (2914,))),
+        ((68, 997, 997), ((32,) * 2 + (4,), (997,), (997,))),
+        ((68, 997 * 2, 997 * 2), ((32,) * 2 + (4,), (997, 997), (997, 997))),
+    ],
+)
+def test_input_aligned_large_array_writes_skip_rechunk(shape, chunks):
+    """Large input-aligned writes build the store graph without rechunking."""
+    from unittest.mock import patch
+
+    data = da.zeros(shape, chunks=chunks, dtype=np.uint16)
+    dataset = anu_ctlab_io.Dataset(
+        data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch.object(da.Array, "rechunk", side_effect=AssertionError):
+            result = anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                Path(tmpdir) / "no_large_rechunk.zarr",
+                ome_zarr_version=None,
+                input_aligned_chunks=True,
+                compute=False,
+            )
+
+    assert result is not None
 
 
 def test_size_parameters_and_explicit_shapes(_make_dataset):
