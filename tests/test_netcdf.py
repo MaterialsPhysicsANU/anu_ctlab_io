@@ -1,8 +1,9 @@
-import h5netcdf.legacyapi as nc4
 import numpy as np
 import pytest
 
 try:
+    import h5netcdf.legacyapi as nc4
+
     import anu_ctlab_io.netcdf
 
     _HAS_NETCDF = True
