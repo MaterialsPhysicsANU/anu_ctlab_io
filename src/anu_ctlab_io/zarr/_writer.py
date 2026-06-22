@@ -50,6 +50,7 @@ def dataset_to_zarr(
     shards: ShardSpec = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
+    input_aligned_chunks: bool = False,
     compute: bool = True,
     **extra_attrs: Any,
 ) -> Delayed | None:
@@ -92,6 +93,10 @@ def dataset_to_zarr(
     :param dimension_separator_threshold: Use ``'/'`` as the chunk key dimension
         separator when the number of chunks exceeds this threshold; otherwise use
         ``'.'``. ``None`` uses the Zarr default of ``'/'``.
+    :param input_aligned_chunks: Choose Zarr chunks/shards aligned to the input dask
+        chunk grid and skip rechunking before storing. With sharding is enabled, shards
+        are aligned to the dask chunks and inner chunks evenly divide each shard.
+        With ``shards=None``, chunks are aligned to the dask chunks.
     :param compute: If ``True`` (default), compute immediately. If ``False``, return
         a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional attributes to include in mango metadata.
@@ -130,13 +135,14 @@ def dataset_to_zarr(
             stacklevel=2,
         )
 
-    if isinstance(shards, tuple) and chunks == "auto":
+    if isinstance(shards, tuple) and chunks == "auto" and not input_aligned_chunks:
         raise ValueError("shards cannot be provided without explicit chunks")
 
     inner_chunks, outer_shards = _resolve_zarr_layout(
         shape=data_array.shape,
         chunks=chunks,
         shards=shards,
+        aligned_chunks=data_array.chunks if input_aligned_chunks else None,
     )
 
     mango_attrs: dict[str, Any] | None = None
@@ -164,7 +170,8 @@ def dataset_to_zarr(
             create_array_kwargs,
             mango_attrs,
             ome_zarr_version,
-            compute,
+            rechunk_before_store=not input_aligned_chunks,
+            compute=compute,
         )
     else:
         return _write_zarr_array(
@@ -175,7 +182,8 @@ def dataset_to_zarr(
             outer_shards,
             create_array_kwargs,
             mango_attrs,
-            compute,
+            rechunk_before_store=not input_aligned_chunks,
+            compute=compute,
         )
 
 
@@ -205,6 +213,7 @@ def _resolve_zarr_layout(
     shape: ChunkShape,
     chunks: ChunkSpec,
     shards: ShardSpec,
+    aligned_chunks: tuple[tuple[int, ...], ...] | None = None,
 ) -> tuple[ChunkShape, ChunkShape | None]:
     """Resolve the final Zarr chunk/shard layout from the supported writer inputs.
 
@@ -217,7 +226,27 @@ def _resolve_zarr_layout(
     the full array axis for unsharded writes, or the full shard axis when ``shards`` is
     provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
     of the resolved chunk size so the sharding codec remains valid.
+
+    When ``aligned_chunks`` is provided, layout selection is constrained to that
+    existing chunk grid and no writer rechunking is required. The grid must be
+    regular except for smaller final edge chunks. For sharded writes, resolved
+    shards must evenly divide the aligned chunk shape and resolved inner chunks
+    must evenly divide the shard shape, allowing multiple shards and/or inner chunks
+    per aligned chunk. For unsharded writes, resolved chunks must evenly divide the
+    aligned chunk shape. ``shards='auto'`` uses the full aligned chunk shape.
+    Unsharded ``chunks='auto'`` also uses the full aligned chunk shape because chunks
+    are the write unit. Sharded ``chunks='auto'`` still derives inner chunks from the
+    default chunk element target, then chooses the largest derived shape that evenly
+    divides the resolved shard shape.
     """
+    if aligned_chunks is not None:
+        return _resolve_input_aligned_zarr_layout(
+            shape=shape,
+            aligned_chunks=aligned_chunks,
+            chunks=chunks,
+            shards=shards,
+        )
+
     if chunks == "auto":
         chunks = _DEFAULT_CHUNK_ELEMENTS
     if isinstance(chunks, int):
@@ -228,6 +257,146 @@ def _resolve_zarr_layout(
         shards = _auto_shards(shape, chunks, shards)
 
     return _normalize_explicit_shapes(shape, chunks, shards)
+
+
+def _resolve_input_aligned_zarr_layout(
+    *,
+    shape: ChunkShape,
+    aligned_chunks: tuple[tuple[int, ...], ...],
+    chunks: ChunkSpec,
+    shards: ShardSpec,
+) -> tuple[ChunkShape, ChunkShape | None]:
+    aligned_chunk_shape = _regular_aligned_chunk_shape(aligned_chunks)
+
+    if shards is None:
+        if chunks == "auto":
+            resolved_chunks = aligned_chunk_shape
+        elif isinstance(chunks, tuple):
+            resolved_chunks = _normalize_input_aligned_tuple(
+                chunks, aligned_chunk_shape
+            )
+        else:
+            resolved_chunks = _input_aligned_subchunk_shape(
+                shape, aligned_chunk_shape, chunks
+            )
+        _validate_aligned_write_shape(aligned_chunk_shape, resolved_chunks)
+        return resolved_chunks, None
+
+    if shards == "auto":
+        resolved_shards = aligned_chunk_shape
+    elif isinstance(shards, tuple):
+        resolved_shards = _normalize_input_aligned_tuple(shards, aligned_chunk_shape)
+    else:
+        resolved_shards = _input_aligned_subchunk_shape(
+            shape, aligned_chunk_shape, shards
+        )
+    _validate_aligned_write_shape(aligned_chunk_shape, resolved_shards)
+
+    resolved_chunks = (
+        _normalize_input_aligned_tuple(chunks, resolved_shards)
+        if isinstance(chunks, tuple)
+        else _input_aligned_subchunk_shape(shape, resolved_shards, chunks)
+    )
+    _validate_subchunks_divide_write_shape(resolved_chunks, resolved_shards)
+    return resolved_chunks, resolved_shards
+
+
+def _regular_aligned_chunk_shape(
+    aligned_chunks: tuple[tuple[int, ...], ...],
+) -> ChunkShape:
+    regular_chunks: list[int] = []
+    for axis, axis_chunks in enumerate(aligned_chunks):
+        if len(axis_chunks) == 0:
+            raise ValueError("input_aligned_chunks requires non-empty aligned chunks")
+
+        regular_chunk = int(axis_chunks[0])
+        if regular_chunk <= 0:
+            raise ValueError("input_aligned_chunks requires positive aligned chunks")
+
+        internal_chunks = axis_chunks[:-1] if len(axis_chunks) > 1 else axis_chunks
+        if any(int(chunk) != regular_chunk for chunk in internal_chunks):
+            raise ValueError(
+                "input_aligned_chunks requires regular aligned chunks; "
+                f"axis {axis} has chunks {axis_chunks}."
+            )
+        if int(axis_chunks[-1]) > regular_chunk:
+            raise ValueError(
+                "input_aligned_chunks requires regular aligned chunks; "
+                f"axis {axis} has chunks {axis_chunks}."
+            )
+        regular_chunks.append(regular_chunk)
+
+    return tuple(regular_chunks)
+
+
+def _normalize_input_aligned_tuple(
+    spec: ChunkShape,
+    span: ChunkShape,
+) -> ChunkShape:
+    if len(spec) != len(span):
+        raise ValueError(
+            f"input-aligned layout must have {len(span)} dimensions. Got {spec}."
+        )
+    resolved = tuple(
+        span_size if size == 0 else size
+        for size, span_size in zip(spec, span, strict=True)
+    )
+    if any(size <= 0 for size in resolved):
+        raise ValueError(f"input-aligned layout sizes must be positive. Got {spec}.")
+    return resolved
+
+
+def _input_aligned_subchunk_shape(
+    shape: ChunkShape,
+    write_shape: ChunkShape,
+    chunks: ChunkSpec,
+) -> ChunkShape:
+    if chunks == "auto":
+        chunks = _DEFAULT_CHUNK_ELEMENTS
+    if isinstance(chunks, int):
+        target = _auto_shape(shape, chunks)
+        return tuple(
+            _largest_divisor_at_most(write_size, target_size)
+            for write_size, target_size in zip(write_shape, target, strict=True)
+        )
+    assert isinstance(chunks, tuple)
+    return chunks
+
+
+def _largest_divisor_at_most(value: int, limit: int) -> int:
+    limit = min(value, limit)
+    for candidate in range(limit, 0, -1):
+        if value % candidate == 0:
+            return candidate
+    raise ValueError(f"Could not find a positive divisor for {value}.")
+
+
+def _validate_aligned_write_shape(
+    aligned_chunk_shape: ChunkShape,
+    write_shape: ChunkShape,
+) -> None:
+    _validate_subchunks_divide_write_shape(write_shape, aligned_chunk_shape)
+
+
+def _validate_subchunks_divide_write_shape(
+    subchunks: ChunkShape,
+    write_shape: ChunkShape,
+) -> None:
+    if len(subchunks) != len(write_shape):
+        raise ValueError(
+            "subchunks must have the same dimensions as the write shape. "
+            f"Got {subchunks} and {write_shape}."
+        )
+    for axis, (subchunk, write_size) in enumerate(
+        zip(subchunks, write_shape, strict=True)
+    ):
+        if subchunk <= 0:
+            raise ValueError(f"subchunk sizes must be positive. Got {subchunks}.")
+        if write_size % subchunk != 0:
+            raise ValueError(
+                "input_aligned_chunks requires subchunks to evenly divide the "
+                f"write shape. Axis {axis}: {subchunk} does not divide {write_size}."
+            )
 
 
 def _normalize_explicit_shapes(
@@ -359,6 +528,7 @@ def _write_ome_zarr_group(
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
+    rechunk_before_store: bool,
     compute: bool = True,
 ) -> Delayed | None:
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
@@ -428,8 +598,9 @@ def _write_ome_zarr_group(
     # If not using sharding, `.shards` is None and `chunks` is used as the write granularity.
     # Note that the rechunk is lazy if the array is already in the desired chunk shape.
     # The straddling chunks/shards w.r.t the array shape need no special handling.
-    write_shape = array.shards or array.chunks
-    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+    if rechunk_before_store:
+        write_shape = array.shards or array.chunks
+        data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
     # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
     # chunk sizes that are not multiples of the shard shape, causing misaligned writes
@@ -448,6 +619,7 @@ def _write_zarr_array(
     outer_shards: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
+    rechunk_before_store: bool,
     compute: bool = True,
 ) -> Delayed | None:
     """Write data as a simple Zarr V3 array with mango metadata.
@@ -483,8 +655,9 @@ def _write_zarr_array(
 
     # Always rechunk to the write granularity of the Zarr array before writing.
     # See comment in _write_ome_zarr_group for explanation.
-    write_shape = array.shards or array.chunks
-    data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+    if rechunk_before_store:
+        write_shape = array.shards or array.chunks
+        data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
 
     result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
     return result

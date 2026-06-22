@@ -836,6 +836,30 @@ def test_integer_shards_support_zero_chunk_sentinels():
     assert shards == (32, 40, 50)
 
 
+def test_input_aligned_integer_chunk_target_uses_dask_chunk_divisors():
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(40, 50, 60),
+        chunks=32**3,
+        shards="auto",
+        aligned_chunks=((20, 20), (50,), (60,)),
+    )
+
+    assert chunks == (20, 25, 30)
+    assert shards == (20, 50, 60)
+
+
+def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chunk():
+    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=(32, 32, 32),
+        chunks=4**3,
+        shards=8**3,
+        aligned_chunks=((16, 16), (16, 16), (16, 16)),
+    )
+
+    assert chunks == (4, 4, 4)
+    assert shards == (8, 8, 8)
+
+
 @pytest.mark.parametrize("elements", [0, -1, True])
 def test_invalid_element_targets_raise(elements):
     with pytest.raises(ValueError, match="elements must be a positive integer"):
@@ -934,6 +958,135 @@ def test_write_with_auto_chunks_and_shards(_make_dataset):
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_input_aligned_chunks_match_dask_chunks_for_sharded_write(_make_dataset):
+    """Input-aligned sharded writes use dask chunks as shards and divisor chunks."""
+    import zarr
+
+    shape = (40, 50, 60)
+    dataset, data = _make_dataset(shape, chunks=(20, 50, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "input_aligned_sharded.zarr"
+
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+            input_aligned_chunks=True,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.shards == (20, 50, 60)
+        assert array.chunks == (20, 25, 30)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_input_aligned_chunks_match_dask_chunks_for_unsharded_write(_make_dataset):
+    """Input-aligned unsharded writes use dask chunks as Zarr chunks."""
+    import zarr
+
+    shape = (40, 50, 60)
+    dataset, data = _make_dataset(shape, chunks=(20, 50, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "input_aligned_unsharded.zarr"
+
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+            shards=None,
+            input_aligned_chunks=True,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.shards is None
+        assert array.chunks == (20, 50, 60)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_input_aligned_chunks_allow_array_edge_remainders(_make_dataset):
+    """Final dask chunks may be smaller at the array edge."""
+    import zarr
+
+    shape = (45, 55, 65)
+    dataset, data = _make_dataset(shape, chunks=(20, 50, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        output_path = Path(tmpdir) / "input_aligned_edges.zarr"
+
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            ome_zarr_version=None,
+            input_aligned_chunks=True,
+        )
+
+        array = zarr.open_array(output_path, mode="r")
+        assert array.shards == (20, 50, 60)
+        assert array.chunks == (20, 25, 30)
+
+        loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+        assert np.array_equal(loaded_dataset.data.compute(), data.compute())
+
+
+def test_input_aligned_chunks_reject_irregular_internal_dask_chunks():
+    """Only the final chunk on each axis may be a smaller remainder."""
+    data = da.zeros((50, 50, 60), chunks=((20, 10, 20), (50,), (60,)))
+    dataset = anu_ctlab_io.Dataset(
+        data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(1.0, 1.0, 1.0),
+    )
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pytest.raises(ValueError, match="regular aligned chunks"):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                Path(tmpdir) / "irregular.zarr",
+                ome_zarr_version=None,
+                input_aligned_chunks=True,
+            )
+
+
+def test_input_aligned_chunks_validates_explicit_tuple_layout(_make_dataset):
+    """Explicit tuple layouts must be compatible with the dask chunk grid."""
+    dataset, _ = _make_dataset((40, 50, 60), chunks=(20, 50, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with pytest.raises(ValueError, match="evenly divide"):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                Path(tmpdir) / "misaligned.zarr",
+                ome_zarr_version=None,
+                chunks=(7, 25, 30),
+                shards=(20, 50, 60),
+                input_aligned_chunks=True,
+            )
+
+
+def test_input_aligned_chunks_skips_writer_rechunk(_make_dataset):
+    """Validated input-aligned writes do not rechunk before storing."""
+    from unittest.mock import patch
+
+    dataset, _ = _make_dataset((40, 50, 60), chunks=(20, 50, 60))
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        with patch.object(da.Array, "rechunk", side_effect=AssertionError):
+            anu_ctlab_io.zarr.dataset_to_zarr(
+                dataset,
+                Path(tmpdir) / "no_rechunk.zarr",
+                ome_zarr_version=None,
+                slice_thumbnails=False,
+                input_aligned_chunks=True,
+            )
 
 
 def test_size_parameters_and_explicit_shapes(_make_dataset):
