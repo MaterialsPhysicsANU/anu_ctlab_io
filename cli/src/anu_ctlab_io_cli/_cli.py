@@ -302,7 +302,7 @@ def _convert(
     _print_dataset_info(dataset)
     logger.info("Output: %s", output)
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
-    if _output_is_zarr(output, output_format):
+    if converting_netcdf_to_zarr:
         kwargs["input_aligned_chunks"] = True
     if datatype is not None:
         kwargs["datatype"] = datatype
