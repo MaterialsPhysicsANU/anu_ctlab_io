@@ -863,7 +863,7 @@ def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chun
 
 
 @pytest.mark.parametrize(
-    ("shape", "aligned_chunks", "chunks", "subchunks"),
+    ("shape", "aligned_chunks", "expected_chunks", "expected_subchunks"),
     [
         # One chunk on XY, subchunk doesn't evenly divide. Zarr chunk expands to accommodate.
         ((32, 2914, 2914), ((32,), (2914,), (2914,)), (32, 2944, 2944), (32, 32, 32)),
@@ -877,16 +877,18 @@ def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chun
         ),
     ],
 )
-def test_resolve_zarr_layout_edge_and_prime(shape, aligned_chunks, chunks, subchunks):
+def test_resolve_zarr_layout_edge_and_prime(
+    shape, aligned_chunks, expected_chunks, expected_subchunks
+):
     chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
-        shape=(68, 2914, 2914),
+        shape=shape,
         chunks="auto",
         subchunks="auto",
         aligned_chunks=aligned_chunks,
     )
 
-    assert chunks == chunks
-    assert subchunks == subchunks
+    assert chunks == expected_chunks
+    assert subchunks == expected_subchunks
 
 
 def test_normalize_explicit_shapes_uses_internal_chunk_subchunk_order():
