@@ -55,6 +55,358 @@ def test_write_single_ome_zarr(_make_dataset):
         assert read_dataset.dimension_names == dataset.dimension_names
 
 
+def test_default_ome_zarr_writes_multiscale_levels(_make_dataset, tmp_path):
+    """Default OME-Zarr output writes a multiscale pyramid when chunks allow it."""
+    import zarr
+
+    shape = (16, 16, 16)
+    dataset, data = _make_dataset(shape, chunks=(4, 4, 4))
+    output_path = tmp_path / "multiscale.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+    )
+
+    root = zarr.open_group(output_path, mode="r")
+    assert sorted(root.array_keys()) == ["0", "1", "2"]
+
+    read_dataset = anu_ctlab_io.Dataset.from_path(output_path)
+    assert read_dataset.data.shape == shape
+    assert np.array_equal(read_dataset.data.compute(), data.compute())
+
+
+def test_multiscale_stops_when_array_fits_in_level_0_chunk(_make_dataset, tmp_path):
+    """Unsharded pyramids stop once the current level fits in one level-0 chunk."""
+    import zarr
+
+    dataset, _ = _make_dataset((4, 4, 4), chunks=(4, 4, 4))
+    output_path = tmp_path / "fits_in_chunk.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+    )
+
+    assert sorted(zarr.open_group(output_path, mode="r").array_keys()) == ["0"]
+
+
+def test_multiscale_stops_when_array_fits_in_level_0_subchunk(_make_dataset, tmp_path):
+    """Sharded pyramids stop once the current level fits in one level-0 subchunk."""
+    import zarr
+
+    dataset, _ = _make_dataset((2, 2, 2), chunks=(2, 2, 2))
+    output_path = tmp_path / "fits_in_subchunk.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks=(2, 2, 2),
+        shards=(2, 2, 2),
+    )
+
+    assert sorted(zarr.open_group(output_path, mode="r").array_keys()) == ["0"]
+
+
+def test_multiscale_stop_threshold_uses_level_0_storage_unit(_make_dataset, tmp_path):
+    """The stop threshold does not shrink with each pyramid level's layout."""
+    import zarr
+
+    dataset, _ = _make_dataset((16, 16, 16), chunks=(8, 8, 8))
+    output_path = tmp_path / "level_0_threshold.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+    )
+
+    root = zarr.open_group(output_path, mode="r")
+    assert sorted(root.array_keys()) == ["0", "1"]
+    assert zarr.open_array(output_path / "0", mode="r").chunks == (8, 8, 8)
+    assert zarr.open_array(output_path / "1", mode="r").shape == (8, 8, 8)
+
+
+def test_ome_zarr_multiscale_metadata_transforms(_make_dataset, tmp_path):
+    """Level transforms use 2x scales and half-voxel translations."""
+    import zarr
+
+    dataset, _ = _make_dataset((16, 16, 16), chunks=(4, 4, 4), voxel_size=(2, 3, 4))
+    output_path = tmp_path / "metadata.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+    )
+
+    ome = zarr.open_group(output_path, mode="r").attrs["ome"]
+    multiscale = ome["multiscales"][0]
+    assert multiscale["coordinateTransformations"] == [
+        {"type": "scale", "scale": [2.0, 3.0, 4.0]}
+    ]
+
+    datasets = multiscale["datasets"]
+    assert [dataset["path"] for dataset in datasets] == ["0", "1", "2"]
+    assert datasets[0]["coordinateTransformations"] == [
+        {"type": "scale", "scale": [1.0, 1.0, 1.0]}
+    ]
+    assert datasets[1]["coordinateTransformations"] == [
+        {"type": "scale", "scale": [2.0, 2.0, 2.0]},
+        {"type": "translation", "translation": [0.5, 0.5, 0.5]},
+    ]
+    assert datasets[2]["coordinateTransformations"] == [
+        {"type": "scale", "scale": [4.0, 4.0, 4.0]},
+        {"type": "translation", "translation": [1.5, 1.5, 1.5]},
+    ]
+
+
+def test_plain_zarr_output_remains_single_scale(_make_dataset, tmp_path):
+    """Plain Zarr output is still a single array."""
+    import zarr
+
+    dataset, _ = _make_dataset((8, 8, 8), chunks=(4, 4, 4))
+    output_path = tmp_path / "plain.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        ome_zarr_version=None,
+    )
+
+    assert isinstance(zarr.open(output_path, mode="r"), zarr.Array)
+
+
+def test_multiscale_stops_on_lower_level_layout_incompatibility(
+    _make_dataset, tmp_path
+):
+    """Level >0 layout incompatibility stops the pyramid without metadata gaps."""
+    import zarr
+
+    dataset, _ = _make_dataset((8, 8, 8), chunks=(4, 4, 4))
+    output_path = tmp_path / "stopped.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks=(2, 2, 2),
+        shards=None,
+    )
+
+    root = zarr.open_group(output_path, mode="r")
+    assert sorted(root.array_keys()) == ["0", "1"]
+    datasets = root.attrs["ome"]["multiscales"][0]["datasets"]
+    assert [dataset["path"] for dataset in datasets] == ["0", "1"]
+
+
+def test_multiscale_level_zero_layout_incompatibility_raises(_make_dataset, tmp_path):
+    """Level 0 keeps raising for explicit layouts incompatible with the input grid."""
+    dataset, _ = _make_dataset((8, 8, 8), chunks=(4, 4, 4))
+
+    with pytest.raises(ValueError, match="evenly divide"):
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            tmp_path / "invalid_level0.zarr",
+            chunks=(3, 3, 3),
+            shards=None,
+        )
+
+
+def test_multiscale_write_uses_source_chunk_tasks(_make_dataset, tmp_path):
+    """Multiscale writes do not rechunk or build separate Dask downsample arrays."""
+    from unittest.mock import patch
+
+    dataset, _ = _make_dataset((8, 8, 8), chunks=(4, 4, 4))
+
+    with (
+        patch.object(da.Array, "rechunk", side_effect=AssertionError),
+        patch.object(da, "coarsen", side_effect=AssertionError),
+        patch.object(da, "store", side_effect=AssertionError),
+    ):
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            tmp_path / "no_rechunk.zarr",
+            chunks="auto",
+            shards=None,
+        )
+
+
+def test_multiscale_allows_odd_chunk_sizes_by_rounding_up(_make_dataset, tmp_path):
+    """Odd source chunks can still downsample; each chunk rounds up locally."""
+    import zarr
+
+    data = np.arange(10**3, dtype=np.uint16).reshape((10, 10, 10))
+    dataset, _ = _make_dataset(data.shape, chunks=(5, 5, 5), data=data)
+    output_path = tmp_path / "odd_chunks.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+    )
+
+    root = zarr.open_group(output_path, mode="r")
+    assert sorted(root.array_keys()) == ["0", "1", "2"]
+
+    level_1 = zarr.open_array(output_path / "1", mode="r")
+    level_2 = zarr.open_array(output_path / "2", mode="r")
+    level_1_chunks = ((3, 3), (3, 3), (3, 3))
+    level_2_chunks = ((2, 2), (2, 2), (2, 2))
+    assert level_1.shape == (6, 6, 6)
+    assert level_1.chunks == (3, 3, 3)
+    assert level_2.shape == (4, 4, 4)
+    assert level_2.chunks == (2, 2, 2)
+
+    def starts(chunks):
+        axis_starts = []
+        for axis_chunks in chunks:
+            offset = 0
+            current_axis_starts = []
+            for chunk in axis_chunks:
+                current_axis_starts.append(offset)
+                offset += chunk
+            axis_starts.append(tuple(current_axis_starts))
+        return tuple(axis_starts)
+
+    def chunkwise_strided(array, input_chunks, output_chunks):
+        output = np.empty(tuple(sum(axis) for axis in output_chunks), dtype=array.dtype)
+        input_starts = starts(input_chunks)
+        output_starts = starts(output_chunks)
+        for chunk_index in np.ndindex(tuple(len(axis) for axis in input_chunks)):
+            input_slices = tuple(
+                slice(
+                    input_starts[axis][index],
+                    input_starts[axis][index] + input_chunks[axis][index],
+                    2,
+                )
+                for axis, index in enumerate(chunk_index)
+            )
+            output_slices = tuple(
+                slice(
+                    output_starts[axis][index],
+                    output_starts[axis][index] + output_chunks[axis][index],
+                )
+                for axis, index in enumerate(chunk_index)
+            )
+            output[output_slices] = array[input_slices]
+        return output
+
+    expected_level_1 = chunkwise_strided(data, ((5, 5), (5, 5), (5, 5)), level_1_chunks)
+    expected_level_2 = chunkwise_strided(
+        expected_level_1, level_1_chunks, level_2_chunks
+    )
+    assert np.array_equal(level_1[:], expected_level_1)
+    assert np.array_equal(level_2[:], expected_level_2)
+
+
+def test_mean_downsampling_preserves_dtype_and_values(_make_dataset, tmp_path):
+    """Mean downsampling rounds and casts integer levels back to the source dtype."""
+    import zarr
+
+    data = np.arange(8, dtype=np.uint16).reshape(2, 2, 2)
+    dataset, _ = _make_dataset(data.shape, chunks=(2, 2, 2), data=data)
+    output_path = tmp_path / "mean.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks=(1, 1, 1),
+        shards=None,
+        downsample_method="mean",
+    )
+
+    level = zarr.open_array(output_path / "1", mode="r")
+    assert level.dtype == np.dtype("uint16")
+    assert level[:] == np.array([[[4]]], dtype=np.uint16)
+
+
+def test_default_downsampling_is_strided_for_all_datatypes(_make_dataset, tmp_path):
+    """Default downsampling takes every second voxel regardless of datatype."""
+    import zarr
+
+    data = np.array([7, 2, 2, 1, 2, 1, 1, 2], dtype=np.uint8).reshape(2, 2, 2)
+    dataset, _ = _make_dataset(
+        data.shape,
+        chunks=(2, 2, 2),
+        data=data,
+        datatype=anu_ctlab_io.DataType.SEGMENTED,
+    )
+    output_path = tmp_path / "strided.zarr"
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks=(1, 1, 1),
+        shards=None,
+    )
+
+    assert zarr.open_array(output_path / "1", mode="r")[:] == np.array(
+        [[[7]]], dtype=np.uint8
+    )
+
+
+@pytest.mark.parametrize(
+    ("datatype", "method", "expected"),
+    [
+        (anu_ctlab_io.DataType.SEGMENTED, "mean", 2),
+        (anu_ctlab_io.DataType.TOMO, "mode", 1),
+    ],
+)
+def test_mean_and_mode_downsample_methods(
+    _make_dataset, tmp_path, datatype, method, expected
+):
+    """Explicit mean and mode downsampling choices are available."""
+    import zarr
+
+    dtype = np.uint8 if datatype == anu_ctlab_io.DataType.SEGMENTED else np.uint16
+    data = np.array([1, 3, 3, 1, 3, 1, 1, 3], dtype=dtype).reshape(2, 2, 2)
+    dataset, _ = _make_dataset(
+        data.shape,
+        chunks=(2, 2, 2),
+        data=data,
+        datatype=datatype,
+    )
+
+    anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        tmp_path / f"{method}.zarr",
+        chunks=(1, 1, 1),
+        shards=None,
+        downsample_method=method,
+    )
+
+    assert zarr.open_array(tmp_path / f"{method}.zarr" / "1", mode="r")[:] == np.array(
+        [[[expected]]], dtype=dtype
+    )
+
+
+def test_multiscale_compute_false_returns_one_delayed(_make_dataset, tmp_path):
+    """compute=False returns a single delayed object that writes every level."""
+    import zarr
+
+    dataset, _ = _make_dataset((4, 4, 4), chunks=(2, 2, 2))
+    output_path = tmp_path / "delayed.zarr"
+
+    result = anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+        compute=False,
+    )
+
+    assert result is not None
+    result.compute()
+    assert sorted(zarr.open_group(output_path, mode="r").array_keys()) == ["0", "1"]
+
+
 def test_write_single_zarr_array(_make_dataset):
     """Test writing a simple Zarr V3 array with mango metadata."""
     shape = (10, 20, 30)
@@ -243,6 +595,7 @@ def test_write_zarr_element_targets_control_auto_layout(_make_dataset):
             dataset_id="test_sharded_dataset",
             chunks=8**3,
             shards=16**3,
+            multiscale=False,
         )
 
         array = zarr.open_array(output_path / "0", mode="r")
@@ -388,6 +741,7 @@ def test_write_with_explicit_chunks_and_shards(_make_dataset):
             output_path,
             chunks=(5, 50, 60),
             shards=(20, 50, 60),
+            multiscale=False,
         )
 
         assert output_path.exists()
@@ -547,6 +901,7 @@ def test_user_shapes_used_without_validation(_make_dataset):
             output_path,
             chunks=(1, 50, 60),  # Single slice - would normally be rejected
             shards=(25, 50, 60),  # Not a perfect divisor of 100
+            multiscale=False,
         )
 
         # Should succeed without validation errors
@@ -651,6 +1006,7 @@ def test_irregular_dask_chunks_write_correct_data(_make_dataset):
                 new_path,
                 chunks=inner_chunks,
                 shards=outer_shards,
+                multiscale=False,
             )
         read_dataset = anu_ctlab_io.Dataset.from_path(new_path)
         result = read_dataset.data.compute()

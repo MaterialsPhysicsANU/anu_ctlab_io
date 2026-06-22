@@ -6,13 +6,18 @@ from datetime import datetime
 from enum import Enum
 from math import prod
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 import dask.array as da
+import numpy as np
 import zarr
-from dask.delayed import Delayed
+from dask.base import compute as dask_compute
+from dask.delayed import Delayed, delayed
 from ome_zarr_models.v05.axes import Axis
-from ome_zarr_models.v05.coordinate_transformations import VectorScale
+from ome_zarr_models.v05.coordinate_transformations import (
+    VectorScale,
+    VectorTranslation,
+)
 from ome_zarr_models.v05.multiscales import Dataset as OMEDataset
 from ome_zarr_models.v05.multiscales import Multiscale
 
@@ -29,6 +34,7 @@ _DEFAULT_SUBCHUNK_ELEMENTS = max(256**2, 32**3)
 
 type ChunkShape = tuple[int, ...]
 type ChunkSpec = ChunkShape | int | Literal["auto"]
+type DownsampleMethod = Literal["strided", "mean", "mode"]
 
 
 class OMEZarrVersion(Enum):
@@ -53,6 +59,8 @@ def dataset_to_zarr(
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
     input_aligned_chunks: bool = False,
+    multiscale: bool = True,
+    downsample_method: DownsampleMethod = "strided",
     compute: bool = True,
     **extra_attrs: Any,
 ) -> Delayed | None:
@@ -102,6 +110,12 @@ def dataset_to_zarr(
         chunk grid and skip rechunking before storing. With sharding is enabled, shards
         are aligned to the dask chunks and inner chunks evenly divide each shard.
         With ``shards=None``, chunks are aligned to the dask chunks.
+    :param multiscale: For OME-Zarr output, write a multiscale pyramid where possible.
+        Plain Zarr output remains single-scale.
+    :param downsample_method: Downsampling method for multiscale OME-Zarr output.
+        ``"strided"`` (default) takes every second voxel without averaging.
+        ``"mean"`` averages each 2x block.
+        ``"mode"`` chooses the smallest value when a block has tied modes.
     :param compute: If ``True`` (default), compute immediately. If ``False``, return
         a :any:`dask.delayed.Delayed` for deferred execution.
     :param extra_attrs: Additional attributes to include in mango metadata.
@@ -112,8 +126,8 @@ def dataset_to_zarr(
     logger.debug(
         "Writing dataset to Zarr: path=%s, datatype=%s, dataset_id=%s, "
         "ome_zarr_version=%s, chunks=%s, shards=%s, input_aligned_chunks=%s, "
-        "dimension_separator_threshold=%s, compute=%s, create_array_kwargs=%s, "
-        "extra_attrs=%s",
+        "dimension_separator_threshold=%s, multiscale=%s, downsample_method=%s, "
+        "compute=%s, create_array_kwargs=%s, extra_attrs=%s",
         path,
         datatype,
         dataset_id,
@@ -122,6 +136,8 @@ def dataset_to_zarr(
         shards,
         input_aligned_chunks,
         dimension_separator_threshold,
+        multiscale,
+        downsample_method,
         compute,
         create_array_kwargs,
         sorted(extra_attrs),
@@ -134,6 +150,12 @@ def dataset_to_zarr(
             datatype = None
     elif isinstance(datatype, str):
         datatype = DataType.from_basename(datatype)
+
+    if downsample_method not in ("strided", "mean", "mode"):
+        raise ValueError(
+            "downsample_method must be one of 'strided', 'mean', or 'mode'. "
+            f"Got {downsample_method!r}."
+        )
 
     # Generate dataset_id if not provided
     if dataset_id is None and datatype is not None:
@@ -169,18 +191,8 @@ def dataset_to_zarr(
     if isinstance(shards, tuple) and chunks == "auto" and not input_aligned_chunks:
         raise ValueError("shards cannot be provided without explicit chunks")
 
-    chunks, subchunks = _resolve_zarr_layout(
-        shape=data_array.shape,
-        chunks=shards if shards is not None else chunks,
-        subchunks=chunks if shards is not None else None,
-        aligned_chunks=data_array.chunks if input_aligned_chunks else None,
-    )
-    logger.debug(
-        "Resolved Zarr layout: chunks=%s, subchunks=%s, rechunk_before_store=%s",
-        chunks,
-        subchunks,
-        not input_aligned_chunks,
-    )
+    subchunks = chunks if shards is not None else None
+    chunks = chunks if shards is None else shards
 
     mango_attrs: dict[str, Any] | None = None
     if datatype is not None:
@@ -189,15 +201,6 @@ def dataset_to_zarr(
         )
 
     create_array_kwargs = dict(create_array_kwargs or {})
-    if dimension_separator_threshold is not None:
-        create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
-            data_array.shape, chunks, dimension_separator_threshold
-        )
-        logger.debug(
-            "Selected chunk key encoding: key_chunks=%s, encoding=%s",
-            chunks,
-            create_array_kwargs["chunk_key_encoding"],
-        )
 
     if ome_zarr_version is not None:
         logger.debug("Writing OME-Zarr group with version %s", ome_zarr_version)
@@ -210,10 +213,35 @@ def dataset_to_zarr(
             create_array_kwargs=create_array_kwargs,
             mango_attrs=mango_attrs,
             ome_zarr_version=ome_zarr_version,
-            rechunk_before_store=not input_aligned_chunks,
+            rechunk_before_store=not (input_aligned_chunks or multiscale),
+            multiscale=multiscale,
+            downsample_method=downsample_method,
+            dimension_separator_threshold=dimension_separator_threshold,
             compute=compute,
         )
     else:
+        chunks, subchunks = _resolve_zarr_layout(
+            shape=data_array.shape,
+            chunks=chunks,
+            subchunks=subchunks,
+            aligned_chunks=data_array.chunks if input_aligned_chunks else None,
+        )
+        logger.debug(
+            "Resolved Zarr layout: chunks=%s, subchunks=%s, rechunk_before_store=%s",
+            chunks,
+            subchunks,
+            not input_aligned_chunks,
+        )
+        if dimension_separator_threshold is not None:
+            create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
+                data_array.shape, chunks, dimension_separator_threshold
+            )
+            logger.debug(
+                "Selected chunk key encoding: key_chunks=%s, encoding=%s",
+                chunks,
+                create_array_kwargs["chunk_key_encoding"],
+            )
+
         logger.debug("Writing plain Zarr array")
         return _write_zarr_array(
             data_array,
@@ -671,17 +699,215 @@ def _build_mango_attrs(
     return mango_attrs
 
 
+def _regular_chunk_shape(chunks: tuple[tuple[int, ...], ...]) -> ChunkShape | None:
+    regular_chunks: list[int] = []
+    for axis_chunks in chunks:
+        if not axis_chunks:
+            return None
+        regular_chunk = int(axis_chunks[0])
+        internal_chunks = axis_chunks[:-1] if len(axis_chunks) > 1 else axis_chunks
+        if any(int(chunk) != regular_chunk for chunk in internal_chunks):
+            return None
+        if int(axis_chunks[-1]) > regular_chunk:
+            return None
+        regular_chunks.append(regular_chunk)
+    return tuple(regular_chunks)
+
+
+def _can_downsample_chunks_by_two(chunks: tuple[tuple[int, ...], ...]) -> bool:
+    regular_chunks = _regular_chunk_shape(chunks)
+    if regular_chunks is None:
+        return False
+    return all(int(chunk) >= 2 for axis_chunks in chunks for chunk in axis_chunks)
+
+
+def _downsampled_chunks(
+    chunks: tuple[tuple[int, ...], ...],
+) -> tuple[tuple[int, ...], ...]:
+    return tuple(
+        tuple((int(chunk) + 1) // 2 for chunk in axis_chunks) for axis_chunks in chunks
+    )
+
+
+def _shape_from_chunks(chunks: tuple[tuple[int, ...], ...]) -> ChunkShape:
+    return tuple(sum(axis_chunks) for axis_chunks in chunks)
+
+
+def _array_fits_in_store_unit(
+    shape: ChunkShape,
+    store_unit_elements: int,
+) -> bool:
+    return prod(shape) <= store_unit_elements
+
+
+def _cast_mean_downsampled_block(block: np.ndarray, dtype: np.dtype[Any]) -> np.ndarray:
+    dtype = np.dtype(dtype)
+    if np.issubdtype(dtype, np.integer):
+        info = np.iinfo(dtype)
+        return cast(
+            np.ndarray, np.clip(np.rint(block), info.min, info.max).astype(dtype)
+        )
+    return block.astype(dtype)
+
+
+def _mode_smallest_tie(
+    block: np.ndarray, axis: int | tuple[int, ...] | None = None
+) -> np.ndarray:
+    axes = (
+        tuple(range(block.ndim))
+        if axis is None
+        else ((axis,) if isinstance(axis, int) else tuple(axis))
+    )
+    if not axes:
+        return block
+
+    positive_axes = tuple(ax if ax >= 0 else block.ndim + ax for ax in axes)
+    remaining_axes = tuple(ax for ax in range(block.ndim) if ax not in positive_axes)
+    moved = np.moveaxis(block, remaining_axes + positive_axes, range(block.ndim))
+    remaining_shape = moved.shape[: len(remaining_axes)]
+    reduction_size = prod(moved.shape[len(remaining_axes) :])
+    flattened = moved.reshape(*remaining_shape, reduction_size)
+
+    if not remaining_shape:
+        values, counts = np.unique(flattened, return_counts=True)
+        return np.asarray(values[counts == counts.max()].min(), dtype=block.dtype)
+
+    result = np.empty(remaining_shape, dtype=block.dtype)
+    for index in np.ndindex(remaining_shape):
+        values, counts = np.unique(flattened[index], return_counts=True)
+        result[index] = values[counts == counts.max()].min()
+    return result
+
+
+def _downsample_block_by_two(
+    block: np.ndarray,
+    method: DownsampleMethod,
+) -> np.ndarray:
+    if method == "strided":
+        return block[(slice(None, None, 2),) * block.ndim]
+
+    if method == "mode":
+        return _downsample_block_mode(block)
+
+    downsampled = _downsample_block_mean(block)
+    return _cast_mean_downsampled_block(downsampled, np.dtype(block.dtype))
+
+
+def _downsampled_block_shape(block: np.ndarray) -> ChunkShape:
+    return tuple((axis_size + 1) // 2 for axis_size in block.shape)
+
+
+def _downsample_offset_parts(
+    block: np.ndarray,
+) -> list[tuple[np.ndarray, tuple[slice, ...]]]:
+    parts = []
+    for offsets in np.ndindex((2,) * block.ndim):
+        part_index = tuple(slice(int(offset), None, 2) for offset in offsets)
+        part = block[part_index]
+        parts.append((part, tuple(slice(0, axis_size) for axis_size in part.shape)))
+    return parts
+
+
+def _downsample_block_mean(block: np.ndarray) -> np.ndarray:
+    output_shape = _downsampled_block_shape(block)
+    total = np.zeros(output_shape, dtype=np.float64)
+    count = np.zeros(output_shape, dtype=np.uint8)
+    for part, part_slice in _downsample_offset_parts(block):
+        total[part_slice] += part
+        count[part_slice] += 1
+    return cast(np.ndarray, total / count)
+
+
+def _downsample_block_mode(block: np.ndarray) -> np.ndarray:
+    output_shape = _downsampled_block_shape(block)
+    parts = _downsample_offset_parts(block)
+    values = np.empty((len(parts), *output_shape), dtype=block.dtype)
+    valid = np.zeros((len(parts), *output_shape), dtype=bool)
+    for index, (part, part_slice) in enumerate(parts):
+        destination: tuple[int | slice, ...] = (index, *part_slice)
+        values[destination] = part
+        valid[destination] = True
+
+    order = np.argsort(values, axis=0, kind="stable")
+    sorted_values = np.take_along_axis(values, order, axis=0)
+    sorted_valid = np.take_along_axis(valid, order, axis=0)
+
+    counts = np.zeros_like(values, dtype=np.uint8)
+    for index in range(values.shape[0]):
+        counts[index] = np.sum((values == sorted_values[index]) & valid, axis=0)
+    counts = np.take_along_axis(counts, order, axis=0)
+    counts[~sorted_valid] = 0
+
+    best_count = np.max(counts, axis=0, keepdims=True)
+    winners = sorted_valid & (counts == best_count)
+    winner_indices = np.argmax(winners, axis=0, keepdims=True)
+    return cast(
+        np.ndarray, np.take_along_axis(sorted_values, winner_indices, axis=0)[0]
+    )
+
+
+def _chunk_starts(chunks: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
+    starts: list[tuple[int, ...]] = []
+    for axis_chunks in chunks:
+        axis_starts: list[int] = []
+        offset = 0
+        for chunk in axis_chunks:
+            axis_starts.append(offset)
+            offset += int(chunk)
+        starts.append(tuple(axis_starts))
+    return tuple(starts)
+
+
+def _level_block_slices(
+    block_index: tuple[int, ...],
+    level_chunks: tuple[tuple[int, ...], ...],
+    level_starts: tuple[tuple[int, ...], ...],
+) -> tuple[slice, ...]:
+    return tuple(
+        slice(
+            level_starts[axis][chunk_index],
+            level_starts[axis][chunk_index] + level_chunks[axis][chunk_index],
+        )
+        for axis, chunk_index in enumerate(block_index)
+    )
+
+
+def _write_multiscale_chunk(
+    block: np.ndarray,
+    *,
+    zarr_arrays: list[zarr.Array[Any]],
+    block_index: tuple[int, ...],
+    level_chunks: list[tuple[tuple[int, ...], ...]],
+    level_starts: list[tuple[tuple[int, ...], ...]],
+    downsample_method: DownsampleMethod,
+) -> None:
+    level_block = block
+    for level, array in enumerate(zarr_arrays):
+        array[
+            _level_block_slices(block_index, level_chunks[level], level_starts[level])
+        ] = level_block
+        if level < len(zarr_arrays) - 1:
+            level_block = _downsample_block_by_two(level_block, downsample_method)
+
+
+def _combine_delayed(tasks: list[Delayed]) -> Delayed:
+    return cast(Delayed, delayed(lambda *results: None)(*tasks))
+
+
 def _write_ome_zarr_group(
     data_array: da.Array,
     path: Path,
     dataset: Dataset,
     *,
-    chunks: ChunkShape,
-    subchunks: ChunkShape | None,
+    chunks: ChunkSpec,
+    subchunks: ChunkSpec | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
     rechunk_before_store: bool,
+    multiscale: bool,
+    downsample_method: DownsampleMethod,
+    dimension_separator_threshold: int | None,
     compute: bool = True,
 ) -> Delayed | None:
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
@@ -712,67 +938,170 @@ def _write_ome_zarr_group(
 
     voxel_size_list = [float(v) for v in dataset.voxel_size]
     scale_transform = VectorScale(type="scale", scale=voxel_size_list)
-    identity_transform = VectorScale(type="scale", scale=[1.0] * ndim)
+    level_chunks, level_subchunks = _resolve_zarr_layout(
+        shape=data_array.shape,
+        chunks=chunks,
+        subchunks=subchunks,
+        aligned_chunks=data_array.chunks if not rechunk_before_store else None,
+    )
+    logger.debug(
+        "Resolved OME-Zarr level 0 layout: chunks=%s, subchunks=%s, rechunk_before_store=%s",
+        level_chunks,
+        level_subchunks,
+        rechunk_before_store,
+    )
 
-    multiscale = Multiscale(
+    level_shapes: list[ChunkShape] = [data_array.shape]
+    level_aligned_chunks: list[tuple[tuple[int, ...], ...]] = [data_array.chunks]
+    level_layouts: list[tuple[ChunkShape, ChunkShape | None]] = [
+        (level_chunks, level_subchunks)
+    ]
+    level_0_store_unit = level_subchunks or level_chunks
+    level_0_store_unit_elements = prod(level_0_store_unit)
+    if multiscale:
+        while _can_downsample_chunks_by_two(level_aligned_chunks[-1]):
+            if _array_fits_in_store_unit(level_shapes[-1], level_0_store_unit_elements):
+                logger.debug(
+                    "Stopping OME-Zarr pyramid at level %s because shape=%s fits "
+                    "within one level-0 storage unit=%s.",
+                    len(level_shapes) - 1,
+                    level_shapes[-1],
+                    level_0_store_unit,
+                )
+                break
+
+            next_aligned_chunks = _downsampled_chunks(level_aligned_chunks[-1])
+            next_shape = _shape_from_chunks(next_aligned_chunks)
+            try:
+                next_chunks, next_subchunks = _resolve_zarr_layout(
+                    shape=next_shape,
+                    chunks=chunks,
+                    subchunks=subchunks,
+                    aligned_chunks=next_aligned_chunks,
+                )
+            except ValueError:
+                logger.debug(
+                    "Stopping OME-Zarr pyramid before level %s because the layout is "
+                    "incompatible with the downsampled chunk grid.",
+                    len(level_shapes),
+                )
+                break
+            level_shapes.append(next_shape)
+            level_aligned_chunks.append(next_aligned_chunks)
+            level_layouts.append((next_chunks, next_subchunks))
+
+    ome_datasets: list[OMEDataset] = []
+    for level in range(len(level_shapes)):
+        scale = VectorScale(type="scale", scale=[float(2**level)] * ndim)
+        transforms: tuple[VectorScale] | tuple[VectorScale, VectorTranslation]
+        if level > 0:
+            transforms = (
+                scale,
+                VectorTranslation(
+                    type="translation",
+                    translation=[float((2**level - 1) / 2)] * ndim,
+                ),
+            )
+        else:
+            transforms = (scale,)
+        ome_datasets.append(
+            OMEDataset(
+                path=str(level),
+                coordinateTransformations=transforms,
+            )
+        )
+
+    ome_multiscale = Multiscale(
         name="",
         axes=axes,
-        datasets=(
-            OMEDataset(
-                path="0",
-                coordinateTransformations=(identity_transform,),
-            ),
-        ),
+        datasets=tuple(ome_datasets),
         coordinateTransformations=(scale_transform,),
     )
 
     # Set OME attributes on root group
     root.attrs["ome"] = {
         "version": ome_zarr_version.value,
-        "multiscales": [multiscale.model_dump(mode="json")],
+        "multiscales": [ome_multiscale.model_dump(mode="json")],
     }
 
     if mango_attrs:
         root.attrs["mango"] = mango_attrs
 
-    array = root.create_array(
-        "0",
-        shape=data_array.shape,
-        chunks=subchunks or chunks,
-        shards=chunks if subchunks is not None else None,
-        dtype=data_array.dtype,
-        dimension_names=list(dimension_names),
-        overwrite=True,
-        **create_array_kwargs,
-    )
-    logger.debug(
-        "Created OME-Zarr array: path=%s, shape=%s, dtype=%s, chunks=%s, shards=%s, "
-        "dimension_names=%s",
-        path,
-        array.shape,
-        array.dtype,
-        array.chunks,
-        array.shards,
-        dimension_names,
-    )
+    zarr_arrays: list[zarr.Array[Any]] = []
+    for level, (level_shape, (level_chunks, level_subchunks)) in enumerate(
+        zip(level_shapes, level_layouts, strict=True)
+    ):
+        level_create_array_kwargs = dict(create_array_kwargs)
+        if dimension_separator_threshold is not None:
+            level_create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
+                level_shape, level_chunks, dimension_separator_threshold
+            )
 
-    # Always rechunk to the write granularity of the Zarr array before writing.
-    # If using sharding, the write granularity is the shard shape (`.shards`).
-    # If not using sharding, `.shards` is None and `chunks` is used as the write granularity.
-    # Note that the rechunk is lazy if the array is already in the desired chunk shape.
-    # The straddling chunks/shards w.r.t the array shape need no special handling.
-    if rechunk_before_store:
-        write_shape = array.shards or array.chunks
-        logger.debug(
-            "Rechunking input for OME-Zarr write: source_chunks=%s, write_shape=%s",
-            data_array.chunks,
-            write_shape,
+        array = root.create_array(
+            str(level),
+            shape=level_shape,
+            chunks=level_subchunks or level_chunks,
+            shards=level_chunks if level_subchunks is not None else None,
+            dtype=data_array.dtype,
+            dimension_names=list(dimension_names),
+            overwrite=True,
+            **level_create_array_kwargs,
         )
-        data_array = data_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+        logger.debug(
+            "Created OME-Zarr array: path=%s/%s, shape=%s, dtype=%s, chunks=%s, "
+            "shards=%s, dimension_names=%s",
+            path,
+            level,
+            array.shape,
+            array.dtype,
+            array.chunks,
+            array.shards,
+            dimension_names,
+        )
+        zarr_arrays.append(array)
+
+    if multiscale:
+        if rechunk_before_store:
+            raise RuntimeError("Multiscale OME-Zarr writes must not rechunk.")
+
+        level_starts = [_chunk_starts(chunks) for chunks in level_aligned_chunks]
+        blocks = data_array.to_delayed()  # type: ignore[no-untyped-call]
+        tasks: list[Delayed] = [
+            cast(
+                Delayed,
+                delayed(_write_multiscale_chunk, pure=False)(
+                    blocks[block_index],
+                    zarr_arrays=zarr_arrays,
+                    block_index=block_index,
+                    level_chunks=level_aligned_chunks,
+                    level_starts=level_starts,
+                    downsample_method=downsample_method,
+                ),
+            )
+            for block_index in np.ndindex(blocks.shape)
+        ]
+        if compute:
+            dask_compute(*tasks)  # type: ignore[no-untyped-call]
+            return None
+        return _combine_delayed(tasks)
+
+    if rechunk_before_store:
+        rechunked_arrays: list[da.Array] = []
+        level_arrays = [data_array]
+        for level_array, zarr_array in zip(level_arrays, zarr_arrays, strict=True):
+            write_shape = zarr_array.shards or zarr_array.chunks
+            logger.debug(
+                "Rechunking input for OME-Zarr write: source_chunks=%s, write_shape=%s",
+                level_array.chunks,
+                write_shape,
+            )
+            rechunked_arrays.append(level_array.rechunk(write_shape))  # type: ignore[no-untyped-call]
+        level_arrays = rechunked_arrays
     else:
+        level_arrays = [data_array]
         logger.debug(
             "Skipping input rechunk for OME-Zarr write: source_chunks=%s",
-            data_array.chunks,
+            [level_array.chunks for level_array in level_arrays],
         )
 
     # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
@@ -780,8 +1109,12 @@ def _write_ome_zarr_group(
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    result: Delayed | None = da.store(data_array, array, lock=False, compute=compute)  # type: ignore[arg-type]
-    return result
+    result = da.store(level_arrays, zarr_arrays, lock=False, compute=compute)  # type: ignore[arg-type]
+    if compute:
+        return None
+    if isinstance(result, Delayed):
+        return result
+    return _combine_delayed(list(result))
 
 
 def _write_zarr_array(
