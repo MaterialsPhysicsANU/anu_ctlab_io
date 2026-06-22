@@ -73,6 +73,11 @@ def _validate_workers(workers: int) -> int:
     return workers
 
 
+def _visualize_dask_graph(result: Delayed, filename: Path) -> None:
+    result.visualize(filename=str(filename))
+    logger.info("Dask graph written to: %s", filename)
+
+
 def cli(
     input: Annotated[Path, typer.Argument(help="Input file path.")],
     output: Annotated[Path, typer.Argument(help="Output file path.")],
@@ -111,6 +116,13 @@ def cli(
             help="Number of local Dask workers/threads to use. Defaults to one per logical CPU.",
         ),
     ] = _default_workers(),
+    dask_graph: Annotated[
+        Path | None,
+        typer.Option(
+            "--dask-graph",
+            help="Write the Dask task graph visualization to this file before computing.",
+        ),
+    ] = None,
     voxel_size: Annotated[
         str | None,
         typer.Option(
@@ -184,6 +196,8 @@ def cli(
                         voxel_unit,
                     )
                     if result is not None:
+                        if dask_graph is not None:
+                            _visualize_dask_graph(result, dask_graph)
                         future = client.compute(result)
                         progress(future)
                         wait(future)
@@ -213,6 +227,8 @@ def cli(
                     voxel_unit,
                 )
                 if result is not None:
+                    if dask_graph is not None:
+                        _visualize_dask_graph(result, dask_graph)
                     if scheduler == Scheduler.synchronous:
                         result.compute(scheduler=scheduler.value)
                     else:
