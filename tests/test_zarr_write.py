@@ -718,18 +718,18 @@ def test_no_false_warning_with_remainder_chunks(_make_dataset):
 
 
 @pytest.mark.parametrize(
-    ("shape", "chunks", "shards", "expected_chunks", "expected_shards"),
+    ("shape", "chunks", "shards", "expected_chunks", "expected_subchunks"),
     [
-        ((40, 65, 97), "auto", "auto", (32, 32, 32), (64, 96, 128)),
-        ((1, 600, 700), "auto", "auto", (1, 256, 256), (1, 768, 768)),
-        ((21, 200, 300), "auto", "auto", (21, 32, 32), (21, 224, 320)),
-        ((60, 40, 50), (10, 0, 25), (30, 0, 0), (10, 40, 25), (30, 40, 50)),
-        ((1000, 512, 512), "auto", "auto", (32, 32, 32), (512, 512, 512)),
-        ((10, 20, 30), (5, 20, 30), (10, 20, 30), (5, 20, 30), (10, 20, 30)),
-        ((40, 65, 97), "auto", None, (32, 32, 32), None),
+        ((40, 65, 97), "auto", "auto", (64, 96, 128), (32, 32, 32)),
+        ((1, 600, 700), "auto", "auto", (1, 768, 768), (1, 256, 256)),
+        ((21, 200, 300), "auto", "auto", (21, 224, 320), (21, 32, 32)),
+        ((60, 40, 50), (10, 0, 25), (30, 0, 0), (30, 40, 50), (10, 40, 25)),
+        ((1000, 512, 512), "auto", "auto", (512, 512, 512), (32, 32, 32)),
+        ((10, 20, 30), (5, 20, 30), (10, 20, 30), (10, 20, 30), (5, 20, 30)),
+        ((40, 65, 97), "auto", None, (40, 65, 97), None),
         ((10, 20, 30), "auto", "auto", (10, 20, 30), (10, 20, 30)),
         ((10, 20, 30), (5, 0, 0), None, (5, 20, 30), None),
-        ((40, 65, 97), (32, 32, 32), (32, 0, 0), (32, 32, 32), (32, 96, 128)),
+        ((40, 65, 97), (32, 32, 32), (32, 0, 0), (32, 96, 128), (32, 32, 32)),
     ],
 )
 def test_resolve_zarr_layout(
@@ -737,16 +737,18 @@ def test_resolve_zarr_layout(
     chunks,
     shards,
     expected_chunks,
-    expected_shards,
+    expected_subchunks,
 ):
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
-        shape=shape,
-        chunks=chunks,
-        shards=shards,
+    resolved_chunks, resolved_subchunks = (
+        anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+            shape=shape,
+            chunks=shards if shards is not None else chunks,
+            subchunks=chunks if shards is not None else None,
+        )
     )
 
-    assert chunks == expected_chunks
-    assert shards == expected_shards
+    assert resolved_chunks == expected_chunks
+    assert resolved_subchunks == expected_subchunks
 
 
 @pytest.mark.parametrize(
@@ -761,7 +763,7 @@ def test_integer_chunks_are_element_based(elements, expected_chunks):
     chunks, _ = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(1024, 1024, 1024),
         chunks=elements,
-        shards=None,
+        subchunks=None,
     )
 
     assert chunks == expected_chunks
@@ -779,85 +781,96 @@ def test_integer_chunks_are_element_based_for_2d(elements, expected_chunks):
     chunks, _ = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(1, 1024, 1024),
         chunks=elements,
-        shards=None,
+        subchunks=None,
     )
 
     assert chunks == expected_chunks
 
 
 @pytest.mark.parametrize(
-    ("shape", "expected_chunks", "expected_shards"),
+    ("shape", "expected_chunks", "expected_subchunks"),
     [
-        ((1024, 1024, 1024), (32, 32, 32), (512, 512, 512)),
-        ((1, 65536, 65536), (1, 256, 256), (1, 8192, 8192)),
+        ((1024, 1024, 1024), (512, 512, 512), (32, 32, 32)),
+        ((1, 65536, 65536), (1, 8192, 8192), (1, 256, 256)),
     ],
 )
-def test_auto_uses_default_element_targets(shape, expected_chunks, expected_shards):
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+def test_auto_uses_default_element_targets(shape, expected_chunks, expected_subchunks):
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=shape,
         chunks="auto",
-        shards="auto",
+        subchunks="auto",
     )
 
     assert chunks == expected_chunks
-    assert shards == expected_shards
+    assert subchunks == expected_subchunks
 
 
 def test_integer_shards_are_chunk_multiples():
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(100, 100, 100),
-        chunks=(10, 20, 25),
-        shards=32**3,
+        chunks=32**3,
+        subchunks=(10, 20, 25),
     )
 
-    assert chunks == (10, 20, 25)
-    assert shards == (40, 40, 50)
+    assert chunks == (40, 40, 50)
+    assert subchunks == (10, 20, 25)
 
 
 def test_integer_shards_are_chunk_multiples_for_2d():
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(1, 100, 100),
-        chunks=(1, 20, 25),
-        shards=32**2,
+        chunks=32**2,
+        subchunks=(1, 20, 25),
     )
 
-    assert chunks == (1, 20, 25)
-    assert shards == (1, 40, 50)
+    assert chunks == (1, 40, 50)
+    assert subchunks == (1, 20, 25)
 
 
 def test_integer_shards_support_zero_chunk_sentinels():
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(100, 100, 100),
-        chunks=(0, 20, 25),
-        shards=32**3,
+        chunks=32**3,
+        subchunks=(0, 20, 25),
     )
 
-    assert chunks == (32, 20, 25)
-    assert shards == (32, 40, 50)
+    assert chunks == (32, 40, 50)
+    assert subchunks == (32, 20, 25)
 
 
 def test_input_aligned_integer_chunk_target_uses_dask_chunk_divisors():
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(40, 50, 60),
-        chunks=32**3,
-        shards="auto",
+        chunks="auto",
+        subchunks=32**3,
         aligned_chunks=((20, 20), (50,), (60,)),
     )
 
-    assert chunks == (20, 25, 30)
-    assert shards == (20, 50, 60)
+    assert chunks == (20, 50, 60)
+    assert subchunks == (20, 25, 30)
 
 
 def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chunk():
-    chunks, shards = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
         shape=(32, 32, 32),
-        chunks=4**3,
-        shards=8**3,
+        chunks=8**3,
+        subchunks=4**3,
         aligned_chunks=((16, 16), (16, 16), (16, 16)),
     )
 
-    assert chunks == (4, 4, 4)
-    assert shards == (8, 8, 8)
+    assert chunks == (8, 8, 8)
+    assert subchunks == (4, 4, 4)
+
+
+def test_normalize_explicit_shapes_uses_internal_chunk_subchunk_order():
+    chunks, subchunks = anu_ctlab_io.zarr._writer._normalize_explicit_shapes(
+        shape=(60, 40, 50),
+        chunks=(30, 0, 0),
+        subchunks=(10, 0, 25),
+    )
+
+    assert chunks == (30, 40, 50)
+    assert subchunks == (10, 40, 25)
 
 
 @pytest.mark.parametrize("elements", [0, -1, True])
@@ -866,7 +879,7 @@ def test_invalid_element_targets_raise(elements):
         anu_ctlab_io.zarr._writer._resolve_zarr_layout(
             shape=(100, 100, 100),
             chunks=elements,
-            shards=None,
+            subchunks=None,
         )
 
 
@@ -929,7 +942,7 @@ def test_write_with_auto_chunks(_make_dataset):
 
         array = zarr.open_array(output_path, mode="r")
         assert array.shards is None
-        assert array.chunks == (10, 20, 32)
+        assert array.chunks == (10, 20, 60)
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())

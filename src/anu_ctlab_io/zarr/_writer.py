@@ -21,12 +21,11 @@ from anu_ctlab_io._parse_history import History
 
 __all__ = ["OMEZarrVersion", "dataset_to_zarr"]
 
-_DEFAULT_CHUNK_ELEMENTS = max(256**2, 32**3)
-_DEFAULT_SHARD_ELEMENTS = max(8192**2, 512**3)
+_DEFAULT_CHUNK_ELEMENTS = max(8192**2, 512**3)
+_DEFAULT_SUBCHUNK_ELEMENTS = max(256**2, 32**3)
 
 type ChunkShape = tuple[int, ...]
 type ChunkSpec = ChunkShape | int | Literal["auto"]
-type ShardSpec = ChunkShape | int | Literal["auto"] | None
 
 
 class OMEZarrVersion(Enum):
@@ -47,7 +46,7 @@ def dataset_to_zarr(
     history: History | None = None,
     chunk_size_mb: float | None = None,  # TODO: 2.0.0 Remove this deprecated parameter
     chunks: ChunkSpec = "auto",
-    shards: ShardSpec = "auto",
+    shards: ChunkSpec | None = "auto",
     create_array_kwargs: dict[str, Any] | None = None,
     dimension_separator_threshold: int | None = 64,
     input_aligned_chunks: bool = False,
@@ -56,9 +55,11 @@ def dataset_to_zarr(
 ) -> Delayed | None:
     """Write a :any:`Dataset` to Zarr format.
 
-    By default, chunks and shards use power-of-two square or cubic shapes targeting
-    ``32**3`` and ``512**3`` elements respectively. Shapes are trimmed to the array
-    dimensions, and shards are rounded up to chunk multiples.
+    By default, sharded writes use power-of-two square or cubic shapes targeting
+    ``32**3`` elements for Zarr chunks and ``512**3`` elements for shards. Shapes
+    are trimmed to the array dimensions, and shards are rounded up to chunk
+    multiples. With ``shards=None``, ``chunks='auto'`` uses the larger unsharded
+    write target of ``512**3`` elements.
 
     :param dataset: The :any:`Dataset` to write.
     :param path: Path to write the Zarr store.
@@ -78,7 +79,8 @@ def dataset_to_zarr(
     :param chunks: Explicit chunk shape as a tuple shape (e.g., ``(10, 512, 512)``), int (target # of elements), or ``'auto'``.
         Can be provided on its own to write a non-sharded Zarr array, or together with ``shards`` to use the sharding codec.
         An integer specifies the target number of elements for an automatically derived layout.
-        ``'auto'`` uses a default target corresponding to ``32**3`` or ``256**2`` elements.
+        With sharding enabled, ``'auto'`` uses a default target corresponding to ``32**3`` or ``256**2`` elements.
+        With ``shards=None``, ``'auto'`` uses the larger unsharded target corresponding to ``512**3`` or ``8192**2`` elements.
         To write without sharding, pass ``shards=None`` explicitly.
         A value of ``0`` in a shape tuple means "span this axis" — the full array axis for unsharded writes, or the full shard axis when ``shards`` is also provided.
     :param shards: Explicit shard shape as a tuple shape (e.g., ``(100, 512, 512)``), int (target # of elements), or ``'auto'``.
@@ -138,10 +140,10 @@ def dataset_to_zarr(
     if isinstance(shards, tuple) and chunks == "auto" and not input_aligned_chunks:
         raise ValueError("shards cannot be provided without explicit chunks")
 
-    inner_chunks, outer_shards = _resolve_zarr_layout(
+    chunks, subchunks = _resolve_zarr_layout(
         shape=data_array.shape,
-        chunks=chunks,
-        shards=shards,
+        chunks=shards if shards is not None else chunks,
+        subchunks=chunks if shards is not None else None,
         aligned_chunks=data_array.chunks if input_aligned_chunks else None,
     )
 
@@ -153,11 +155,8 @@ def dataset_to_zarr(
 
     create_array_kwargs = dict(create_array_kwargs or {})
     if dimension_separator_threshold is not None:
-        # Use outer_shards for chunk key encoding calculation when sharding is
-        # enabled, since Zarr's chunk_key_encoding addresses shards, not inner chunks.
-        _key_chunks = outer_shards if outer_shards is not None else inner_chunks
         create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
-            data_array.shape, _key_chunks, dimension_separator_threshold
+            data_array.shape, chunks, dimension_separator_threshold
         )
 
     if ome_zarr_version is not None:
@@ -165,11 +164,11 @@ def dataset_to_zarr(
             data_array,
             path,
             dataset,
-            inner_chunks,
-            outer_shards,
-            create_array_kwargs,
-            mango_attrs,
-            ome_zarr_version,
+            chunks=chunks,
+            subchunks=subchunks,
+            create_array_kwargs=create_array_kwargs,
+            mango_attrs=mango_attrs,
+            ome_zarr_version=ome_zarr_version,
             rechunk_before_store=not input_aligned_chunks,
             compute=compute,
         )
@@ -178,10 +177,10 @@ def dataset_to_zarr(
             data_array,
             path,
             dataset,
-            inner_chunks,
-            outer_shards,
-            create_array_kwargs,
-            mango_attrs,
+            chunks=chunks,
+            subchunks=subchunks,
+            create_array_kwargs=create_array_kwargs,
+            mango_attrs=mango_attrs,
             rechunk_before_store=not input_aligned_chunks,
             compute=compute,
         )
@@ -212,51 +211,81 @@ def _resolve_zarr_layout(
     *,
     shape: ChunkShape,
     chunks: ChunkSpec,
-    shards: ShardSpec,
+    subchunks: ChunkSpec | None,
     aligned_chunks: tuple[tuple[int, ...], ...] | None = None,
 ) -> tuple[ChunkShape, ChunkShape | None]:
-    """Resolve the final Zarr chunk/shard layout from the supported writer inputs.
+    """Resolve the internal Zarr chunks/subchunks layout.
 
-    The resolution order is:
-    - explicit ``chunks``/``shards`` shapes when provided
-    - integer element targets and ``'auto'`` sentinels, which derive power-of-two
-      square or cubic layouts
+    This helper uses the writer's internal naming, not the public
+    ``dataset_to_zarr`` parameter names. Before this function is called,
+    public arguments are adapted as follows:
 
-    Explicit shapes also support ``0`` as a sentinel. In ``chunks``, ``0`` means span
-    the full array axis for unsharded writes, or the full shard axis when ``shards`` is
-    provided. In ``shards``, ``0`` means span the array axis, rounded up to a multiple
-    of the resolved chunk size so the sharding codec remains valid.
+    - ``shards is None``: ``chunks`` is the public ``chunks`` value and
+      ``subchunks`` is ``None``.
+    - ``shards is not None``: ``chunks`` is the public ``shards`` value and
+      ``subchunks`` is the public ``chunks`` value.
 
-    When ``aligned_chunks`` is provided, layout selection is constrained to that
-    existing chunk grid and no writer rechunking is required. The grid must be
-    regular except for smaller final edge chunks. For sharded writes, resolved
-    shards must evenly divide the aligned chunk shape and resolved inner chunks
-    must evenly divide the shard shape, allowing multiple shards and/or inner chunks
-    per aligned chunk. For unsharded writes, resolved chunks must evenly divide the
-    aligned chunk shape. ``shards='auto'`` uses the full aligned chunk shape.
-    Unsharded ``chunks='auto'`` also uses the full aligned chunk shape because chunks
-    are the write unit. Sharded ``chunks='auto'`` still derives inner chunks from the
-    default chunk element target, then chooses the largest derived shape that evenly
-    divides the resolved shard shape.
+    The return value follows the same internal naming. ``chunks`` is the outer
+    write shape. ``subchunks`` is ``None`` for unsharded writes, or the inner
+    Zarr chunk shape stored inside each sharded chunk.
+
+    Without ``aligned_chunks``:
+
+    - Unsharded ``chunks='auto'`` uses ``_DEFAULT_CHUNK_ELEMENTS`` and is
+      trimmed to the array shape.
+    - Sharded ``chunks='auto'`` uses ``_DEFAULT_CHUNK_ELEMENTS`` for the outer
+      sharded chunk; ``subchunks='auto'`` uses ``_DEFAULT_SUBCHUNK_ELEMENTS``
+      for the inner Zarr chunks.
+    - Integer specs are element targets. Inner subchunks are derived as a
+      power-of-two square/cubic shape trimmed to the array shape. Outer chunks
+      are derived the same way, then rounded up to a multiple of the resolved
+      subchunk shape so the sharding codec can store them.
+    - Tuple specs are explicit shapes. A zero in unsharded ``chunks`` spans the
+      full array axis. A zero in sharded ``chunks`` spans the full array axis,
+      rounded up to a subchunk multiple. A zero in ``subchunks`` spans the
+      corresponding resolved outer chunk axis.
+
+    With ``aligned_chunks``, no writer rechunking is required. The aligned grid
+    must be regular except for smaller final edge chunks. Unsharded chunks must
+    evenly divide the aligned chunk shape. Sharded outer chunks must evenly
+    divide the aligned chunk shape, and subchunks must evenly divide the outer
+    chunk shape. Tuple zeros span the aligned chunk shape for ``chunks`` and the
+    resolved outer chunk shape for ``subchunks``. Integer and ``'auto'`` specs
+    choose the largest divisor of the containing shape that does not exceed the
+    corresponding automatic target.
     """
     if aligned_chunks is not None:
         return _resolve_input_aligned_zarr_layout(
             shape=shape,
             aligned_chunks=aligned_chunks,
             chunks=chunks,
-            shards=shards,
+            subchunks=subchunks,
         )
+
+    if subchunks is None:
+        if chunks == "auto":
+            chunks = _DEFAULT_CHUNK_ELEMENTS
+        if isinstance(chunks, int):
+            chunks = _auto_shape(shape, chunks)
+
+        resolved_chunks, _ = _normalize_explicit_shapes(
+            shape, chunks=chunks, subchunks=None
+        )
+        return resolved_chunks, None
 
     if chunks == "auto":
         chunks = _DEFAULT_CHUNK_ELEMENTS
+    if subchunks == "auto":
+        subchunks = _DEFAULT_SUBCHUNK_ELEMENTS
+    if isinstance(subchunks, int):
+        subchunks = _auto_shape(shape, subchunks)
     if isinstance(chunks, int):
-        chunks = _auto_shape(shape, chunks)
-    if shards == "auto":
-        shards = _DEFAULT_SHARD_ELEMENTS
-    if isinstance(shards, int):
-        shards = _auto_shards(shape, chunks, shards)
+        chunks = _auto_shards(shape, subchunks, chunks)
 
-    return _normalize_explicit_shapes(shape, chunks, shards)
+    resolved_chunks, resolved_subchunks = _normalize_explicit_shapes(
+        shape, chunks=chunks, subchunks=subchunks
+    )
+    return resolved_chunks, resolved_subchunks
 
 
 def _resolve_input_aligned_zarr_layout(
@@ -264,11 +293,11 @@ def _resolve_input_aligned_zarr_layout(
     shape: ChunkShape,
     aligned_chunks: tuple[tuple[int, ...], ...],
     chunks: ChunkSpec,
-    shards: ShardSpec,
+    subchunks: ChunkSpec | None,
 ) -> tuple[ChunkShape, ChunkShape | None]:
     aligned_chunk_shape = _regular_aligned_chunk_shape(aligned_chunks)
 
-    if shards is None:
+    if subchunks is None:
         if chunks == "auto":
             resolved_chunks = aligned_chunk_shape
         elif isinstance(chunks, tuple):
@@ -282,23 +311,23 @@ def _resolve_input_aligned_zarr_layout(
         _validate_aligned_write_shape(aligned_chunk_shape, resolved_chunks)
         return resolved_chunks, None
 
-    if shards == "auto":
-        resolved_shards = aligned_chunk_shape
-    elif isinstance(shards, tuple):
-        resolved_shards = _normalize_input_aligned_tuple(shards, aligned_chunk_shape)
+    if chunks == "auto":
+        resolved_chunks = aligned_chunk_shape
+    elif isinstance(chunks, tuple):
+        resolved_chunks = _normalize_input_aligned_tuple(chunks, aligned_chunk_shape)
     else:
-        resolved_shards = _input_aligned_subchunk_shape(
-            shape, aligned_chunk_shape, shards
+        resolved_chunks = _input_aligned_subchunk_shape(
+            shape, aligned_chunk_shape, chunks
         )
-    _validate_aligned_write_shape(aligned_chunk_shape, resolved_shards)
+    _validate_aligned_write_shape(aligned_chunk_shape, resolved_chunks)
 
-    resolved_chunks = (
-        _normalize_input_aligned_tuple(chunks, resolved_shards)
-        if isinstance(chunks, tuple)
-        else _input_aligned_subchunk_shape(shape, resolved_shards, chunks)
+    resolved_subchunks = (
+        _normalize_input_aligned_tuple(subchunks, resolved_chunks)
+        if isinstance(subchunks, tuple)
+        else _input_aligned_subchunk_shape(shape, resolved_chunks, subchunks)
     )
-    _validate_subchunks_divide_write_shape(resolved_chunks, resolved_shards)
-    return resolved_chunks, resolved_shards
+    _validate_subchunks_divide_write_shape(resolved_subchunks, resolved_chunks)
+    return resolved_chunks, resolved_subchunks
 
 
 def _regular_aligned_chunk_shape(
@@ -352,7 +381,7 @@ def _input_aligned_subchunk_shape(
     chunks: ChunkSpec,
 ) -> ChunkShape:
     if chunks == "auto":
-        chunks = _DEFAULT_CHUNK_ELEMENTS
+        chunks = _DEFAULT_SUBCHUNK_ELEMENTS
     if isinstance(chunks, int):
         target = _auto_shape(shape, chunks)
         return tuple(
@@ -402,48 +431,45 @@ def _validate_subchunks_divide_write_shape(
 def _normalize_explicit_shapes(
     shape: ChunkShape,
     chunks: ChunkShape,
-    shards: ChunkShape | None,
+    subchunks: ChunkShape | None,
 ) -> tuple[ChunkShape, ChunkShape | None]:
     """Validate explicit layout shapes and expand any zero-valued span sentinels.
 
-    A zero chunk size spans the corresponding shard axis when sharding is enabled,
-    otherwise it spans the full array axis. A zero shard size spans the array axis,
-    rounded up to a chunk multiple so zarr's sharding codec accepts the layout.
+    A zero in unsharded ``chunks`` spans the full array axis. A zero in sharded
+    ``chunks`` spans the full array axis, rounded up to a subchunk multiple. A
+    zero in ``subchunks`` spans the corresponding resolved chunk axis.
     """
     if len(chunks) != len(shape):
         raise ValueError(
             f"chunks must have the same number of dimensions as the array shape. Got chunks={chunks}, shape={shape}."
         )
-    if shards is not None and len(shards) != len(shape):
+    if subchunks is not None and len(subchunks) != len(shape):
         raise ValueError(
-            f"shards must have the same number of dimensions as the array shape. Got shards={shards}, shape={shape}."
+            f"subchunks must have the same number of dimensions as the array shape. Got subchunks={subchunks}, shape={shape}."
         )
 
-    chunk_span = (
-        tuple(
-            axis_size if shard_size == 0 else shard_size
-            for shard_size, axis_size in zip(shards, shape, strict=True)
-        )
-        if shards is not None
-        else shape
-    )
-    resolved_chunks = tuple(
-        axis_size if chunk_size == 0 else chunk_size
-        for chunk_size, axis_size in zip(chunks, chunk_span, strict=True)
-    )
+    resolved_chunks_list: list[int] = []
+    for axis_size, chunk_size, subchunk_size in zip(
+        shape, chunks, subchunks or (0,) * len(shape), strict=True
+    ):
+        if chunk_size != 0:
+            resolved_chunks_list.append(chunk_size)
+        elif subchunks is None or subchunk_size == 0:
+            resolved_chunks_list.append(axis_size)
+        else:
+            resolved_chunks_list.append(_round_up_to_multiple(axis_size, subchunk_size))
+    resolved_chunks = tuple(resolved_chunks_list)
 
-    resolved_shards: ChunkShape | None = None
-    if shards is not None:
-        resolved_shards = tuple(
-            _round_up_to_multiple(axis_size, chunk_size)
-            if shard_size == 0
-            else shard_size
-            for shard_size, axis_size, chunk_size in zip(
-                shards, shape, resolved_chunks, strict=True
+    resolved_subchunks: ChunkShape | None = None
+    if subchunks is not None:
+        resolved_subchunks = tuple(
+            chunk_size if subchunk_size == 0 else subchunk_size
+            for subchunk_size, chunk_size in zip(
+                subchunks, resolved_chunks, strict=True
             )
         )
 
-    return resolved_chunks, resolved_shards
+    return resolved_chunks, resolved_subchunks
 
 
 def _power_of_two_edge(elements: int, dimensions: int) -> int:
@@ -476,7 +502,7 @@ def _auto_shards(
     chunks: ChunkShape,
     elements: int,
 ) -> ChunkShape:
-    """Return auto shard dimensions trimmed to the array and aligned to chunks."""
+    """Return auto outer dimensions trimmed to the array and aligned to chunks."""
     target = _auto_shape(shape, elements)
     return tuple(
         shard_size
@@ -523,8 +549,9 @@ def _write_ome_zarr_group(
     data_array: da.Array,
     path: Path,
     dataset: Dataset,
-    inner_chunks: ChunkShape,
-    outer_shards: ChunkShape | None,
+    *,
+    chunks: ChunkShape,
+    subchunks: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     ome_zarr_version: OMEZarrVersion,
@@ -534,10 +561,10 @@ def _write_ome_zarr_group(
     """Write data as an OME-Zarr group, optionally using Zarr v3 sharding.
 
     In Zarr v3 sharding:
-    - inner_chunks (chunks param) = subdivisions within each shard file
-    - outer_shards (shards param) = how data is split into shard files
+    - chunks = primary write chunks
+    - subchunks = subdivisions within each sharded chunk
 
-    If ``outer_shards`` is ``None``, the array is written without the sharding codec.
+    If ``subchunks`` is ``None``, the array is written without the sharding codec.
     """
 
     if not str(path).endswith(".zarr"):
@@ -585,8 +612,8 @@ def _write_ome_zarr_group(
     array = root.create_array(
         "0",
         shape=data_array.shape,
-        chunks=inner_chunks,
-        shards=outer_shards,
+        chunks=subchunks or chunks,
+        shards=chunks if subchunks is not None else None,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
         overwrite=True,
@@ -615,8 +642,9 @@ def _write_zarr_array(
     data_array: da.Array,
     path: Path,
     dataset: Dataset,
-    inner_chunks: ChunkShape,
-    outer_shards: ChunkShape | None,
+    *,
+    chunks: ChunkShape,
+    subchunks: ChunkShape | None,
     create_array_kwargs: dict[str, Any],
     mango_attrs: dict[str, Any] | None,
     rechunk_before_store: bool,
@@ -624,9 +652,9 @@ def _write_zarr_array(
 ) -> Delayed | None:
     """Write data as a simple Zarr V3 array with mango metadata.
 
-    When ``outer_shards`` is provided, Zarr v3 sharding is used:
-    - inner_chunks (chunks param) = subdivisions within each shard file
-    - outer_shards (shards param) = how data is split into shard files
+    When ``subchunks`` is provided, Zarr v3 sharding is used:
+    - chunks = primary write chunks
+    - subchunks = subdivisions within each sharded chunk
     """
     if not str(path).endswith(".zarr"):
         path = Path(str(path) + ".zarr")
@@ -642,8 +670,8 @@ def _write_zarr_array(
     array = zarr.create_array(
         path,
         shape=data_array.shape,
-        chunks=inner_chunks,
-        shards=outer_shards,
+        chunks=subchunks or chunks,
+        shards=chunks if subchunks is not None else None,
         dtype=data_array.dtype,
         dimension_names=list(dimension_names),
         overwrite=True,
