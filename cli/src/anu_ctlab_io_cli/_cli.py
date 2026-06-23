@@ -137,6 +137,13 @@ def cli(
             help="Override voxel unit (e.g., nm, um, mm, angstrom).",
         ),
     ] = None,
+    no_multiscale: Annotated[
+        bool,
+        typer.Option(
+            "--no-multiscale",
+            help="Disable multiscale pyramid output for Zarr writes.",
+        ),
+    ] = False,
     log_level: Annotated[
         str,
         typer.Option(
@@ -194,6 +201,7 @@ def cli(
                         datatype,
                         _parse_voxel_size(voxel_size) if voxel_size else None,
                         voxel_unit,
+                        no_multiscale=no_multiscale,
                     )
                     if result is not None:
                         if dask_graph is not None:
@@ -225,6 +233,7 @@ def cli(
                     datatype,
                     parsed_voxel_size,
                     voxel_unit,
+                    no_multiscale=no_multiscale,
                 )
                 if result is not None:
                     if dask_graph is not None:
@@ -280,6 +289,7 @@ def _convert(
     datatype: str | None = None,
     voxel_size: tuple[float, float, float] | None = None,
     voxel_unit: VoxelUnit | None = None,
+    no_multiscale: bool = False,
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
@@ -304,6 +314,8 @@ def _convert(
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
     if converting_netcdf_to_zarr:
         kwargs["input_aligned_chunks"] = True
+    if _output_is_zarr(output, output_format) and no_multiscale:
+        kwargs["multiscale"] = False
     if datatype is not None:
         kwargs["datatype"] = datatype
     try:
