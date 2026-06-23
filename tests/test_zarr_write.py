@@ -407,6 +407,48 @@ def test_multiscale_compute_false_returns_one_delayed(_make_dataset, tmp_path):
     assert sorted(zarr.open_group(output_path, mode="r").array_keys()) == ["0", "1"]
 
 
+def test_multiscale_input_aligned_subchunks_use_divisor_scoring(tmp_path):
+    """Downsampled sharded levels choose useful divisors and skip one-subchunk shards."""
+    import zarr
+
+    shape = (128, 2914, 2914)
+    data = da.empty(shape, chunks=(32, 2914, 2914), dtype=np.uint16)
+    dataset = anu_ctlab_io.Dataset(
+        data=data,
+        dimension_names=("z", "y", "x"),
+        voxel_unit=anu_ctlab_io.VoxelUnit.MM,
+        voxel_size=(0.03374304, 0.03374304, 0.03374304),
+        datatype=anu_ctlab_io.DataType.TOMO,
+    )
+    output_path = tmp_path / "tomo_hi_res_multiscale.zarr"
+
+    result = anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards="auto",
+        compute=False,
+    )
+
+    assert result is not None
+    root = zarr.open_group(output_path, mode="r")
+    assert sorted(root.array_keys()) == ["0", "1", "2", "3", "4", "5"]
+
+    expected_layouts = [
+        ((128, 2914, 2914), (32, 32, 32), (32, 2944, 2944)),
+        ((64, 1457, 1457), (16, 46, 46), (16, 1472, 1472)),
+        ((32, 729, 729), (8, 46, 46), (8, 736, 736)),
+        ((16, 365, 365), (4, 73, 73), (4, 365, 365)),
+        ((8, 183, 183), (2, 61, 61), (2, 183, 183)),
+        ((4, 92, 92), (1, 92, 92), None),
+    ]
+    for level, (shape, chunks, shards) in enumerate(expected_layouts):
+        array = zarr.open_array(output_path / str(level), mode="r")
+        assert array.shape == shape
+        assert array.chunks == chunks
+        assert array.shards == shards
+
+
 def test_write_single_zarr_array(_make_dataset):
     """Test writing a simple Zarr V3 array with mango metadata."""
     shape = (10, 20, 30)
@@ -1148,6 +1190,8 @@ def test_integer_chunks_are_element_based_for_2d(elements, expected_chunks):
     [
         ((1024, 1024, 1024), (512, 512, 512), (32, 32, 32)),
         ((1, 65536, 65536), (1, 8192, 8192), (1, 256, 256)),
+        ((65536, 65536, 1), (8192, 8192, 1), (256, 256, 1)),
+        ((65536, 1, 65536), (8192, 1, 8192), (256, 1, 256)),
     ],
 )
 def test_auto_uses_default_element_targets(shape, expected_chunks, expected_subchunks):
@@ -1203,7 +1247,29 @@ def test_input_aligned_integer_chunk_target_uses_dask_chunk_divisors():
     )
 
     assert chunks == (20, 50, 60)
-    assert subchunks == (20, 25, 30)
+    assert subchunks == (20, 50, 30)
+
+
+@pytest.mark.parametrize(
+    ("shape", "expected_subchunks"),
+    [
+        ((4, 365, 365), (4, 73, 73)),
+        ((4, 365, 1), (4, 73, 1)),
+        ((1, 365, 4), (1, 73, 4)),
+    ],
+)
+def test_input_aligned_subchunks_score_divisible_factor_combinations(
+    shape, expected_subchunks
+):
+    chunks, subchunks = anu_ctlab_io.zarr._writer._resolve_zarr_layout(
+        shape=shape,
+        chunks=shape,
+        subchunks="auto",
+        aligned_chunks=tuple((axis_size,) for axis_size in shape),
+    )
+
+    assert chunks == shape
+    assert subchunks == expected_subchunks
 
 
 def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chunk():
@@ -1229,7 +1295,7 @@ def test_input_aligned_integer_shard_target_allows_multiple_shards_per_dask_chun
             (32, 997 * 2, 997 * 2),
             ((32,), (997, 997), (997, 997)),
             (32, 997, 997),
-            (32, 1, 1),
+            (32, 1, 997),
         ),
     ],
 )
@@ -1377,7 +1443,7 @@ def test_input_aligned_chunks_match_dask_chunks_for_sharded_write(_make_dataset)
 
         array = zarr.open_array(output_path, mode="r")
         assert array.shards == (20, 50, 60)
-        assert array.chunks == (20, 25, 30)
+        assert array.chunks == (20, 50, 30)
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())
@@ -1428,7 +1494,7 @@ def test_input_aligned_chunks_allow_array_edge_remainders(_make_dataset):
 
         array = zarr.open_array(output_path, mode="r")
         assert array.shards == (20, 50, 60)
-        assert array.chunks == (20, 25, 30)
+        assert array.chunks == (20, 50, 30)
 
         loaded_dataset = anu_ctlab_io.Dataset.from_path(output_path)
         assert np.array_equal(loaded_dataset.data.compute(), data.compute())

@@ -4,7 +4,7 @@ import logging
 import warnings
 from datetime import datetime
 from enum import Enum
-from math import prod
+from math import log2, prod
 from pathlib import Path
 from typing import Any, Literal, cast
 
@@ -320,9 +320,9 @@ def _resolve_zarr_layout(
     evenly divide the aligned chunk shape. Sharded outer chunks must evenly
     divide the aligned chunk shape, and subchunks must evenly divide the outer
     chunk shape. Tuple zeros span the aligned chunk shape for ``chunks`` and the
-    resolved outer chunk shape for ``subchunks``. Integer and ``'auto'`` specs
-    choose the largest divisor of the containing shape that does not exceed the
-    corresponding automatic target.
+    resolved outer chunk shape for ``subchunks``. Integer and ``'auto'`` subchunk
+    specs choose a divisor of the containing shard by scoring target element
+    closeness and shape balance.
     """
     if aligned_chunks is not None:
         return _resolve_input_aligned_zarr_layout(
@@ -483,8 +483,7 @@ def _input_aligned_chunk_shape(
 
 
 def _input_aligned_auto_chunk_edge(shape: ChunkShape) -> int:
-    is_2d = len(shape) == 3 and shape[0] == 1
-    dimensions = 2 if is_2d else len(shape)
+    dimensions = len(_balanced_shape_axes(shape))
     return _power_of_two_edge(_DEFAULT_CHUNK_ELEMENTS, dimensions)
 
 
@@ -511,21 +510,79 @@ def _input_aligned_subchunk_shape(
     if chunks == "auto":
         chunks = _DEFAULT_SUBCHUNK_ELEMENTS
     if isinstance(chunks, int):
-        target = _auto_shape(shape, chunks)
-        return tuple(
-            _largest_divisor_at_most(write_size, target_size)
-            for write_size, target_size in zip(write_shape, target, strict=True)
-        )
+        return _best_divisor_subchunk_shape(shape, write_shape, chunks)
     assert isinstance(chunks, tuple)
     return chunks
 
 
-def _largest_divisor_at_most(value: int, limit: int) -> int:
-    limit = min(value, limit)
-    for candidate in range(limit, 0, -1):
+def _best_divisor_subchunk_shape(
+    shape: ChunkShape,
+    write_shape: ChunkShape,
+    target_elements: int,
+) -> ChunkShape:
+    if isinstance(target_elements, bool) or target_elements <= 0:
+        raise ValueError(f"elements must be a positive integer. Got {target_elements}.")
+
+    active_axes = _balanced_shape_axes(shape)
+    target_elements = min(
+        _effective_target_elements(shape, target_elements), prod(write_shape)
+    )
+    best_score: tuple[float, float, float, int, ChunkShape] | None = None
+    for candidate in _divisor_shape_candidates(write_shape):
+        candidate_elements = prod(candidate)
+        target_score = abs(log2(candidate_elements / target_elements))
+        active_sizes = [candidate[axis] for axis in active_axes]
+        balance_score = log2(max(active_sizes) / min(active_sizes))
+        score = (
+            target_score + balance_score,
+            balance_score,
+            target_score,
+            -candidate_elements,
+            candidate,
+        )
+        if best_score is None or score < best_score:
+            best_score = score
+
+    assert best_score is not None
+    return best_score[-1]
+
+
+def _balanced_shape_axes(shape: ChunkShape) -> tuple[int, ...]:
+    active_axes = tuple(axis for axis, axis_size in enumerate(shape) if axis_size > 1)
+    return active_axes or tuple(range(len(shape)))
+
+
+def _effective_target_elements(shape: ChunkShape, target_elements: int) -> int:
+    dimensions = len(_balanced_shape_axes(shape))
+    edge = _power_of_two_edge(target_elements, dimensions)
+    return int(edge**dimensions)
+
+
+def _divisor_shape_candidates(write_shape: ChunkShape) -> list[ChunkShape]:
+    candidates: list[ChunkShape] = [()]
+    for axis_size in write_shape:
+        candidates = [
+            (*candidate, divisor)
+            for candidate in candidates
+            for divisor in _divisors(axis_size)
+        ]
+    return candidates
+
+
+def _divisors(value: int) -> tuple[int, ...]:
+    if value <= 0:
+        raise ValueError(f"Cannot find divisors for non-positive value {value}.")
+
+    lower: list[int] = []
+    upper: list[int] = []
+    candidate = 1
+    while candidate * candidate <= value:
         if value % candidate == 0:
-            return candidate
-    raise ValueError(f"Could not find a positive divisor for {value}.")
+            lower.append(candidate)
+            if candidate * candidate != value:
+                upper.append(value // candidate)
+        candidate += 1
+    return (*lower, *reversed(upper))
 
 
 def _validate_aligned_write_shape(
@@ -642,11 +699,11 @@ def _power_of_two_edge(elements: int, dimensions: int) -> int:
 
 def _auto_shape(shape: ChunkShape, elements: int) -> ChunkShape:
     """Return a power-of-two square or cubic shape, trimmed to the array."""
-    is_2d = len(shape) == 3 and shape[0] == 1
-    dimensions = 2 if is_2d else len(shape)
+    active_axes = _balanced_shape_axes(shape)
+    dimensions = len(active_axes)
     edge = _power_of_two_edge(elements, dimensions)
     return tuple(
-        axis_size if is_2d and axis == 0 else min(edge, axis_size)
+        min(edge, axis_size) if axis in active_axes else axis_size
         for axis, axis_size in enumerate(shape)
     )
 
@@ -738,6 +795,15 @@ def _array_fits_in_store_unit(
     store_unit_elements: int,
 ) -> bool:
     return prod(shape) <= store_unit_elements
+
+
+def _disable_single_subchunk_sharding(
+    chunks: ChunkShape,
+    subchunks: ChunkShape | None,
+) -> tuple[ChunkShape, ChunkShape | None]:
+    if subchunks == chunks:
+        return chunks, None
+    return chunks, subchunks
 
 
 def _cast_mean_downsampled_block(block: np.ndarray, dtype: np.dtype[Any]) -> np.ndarray:
@@ -1031,6 +1097,9 @@ def _write_ome_zarr_group(
     for level, (level_shape, (level_chunks, level_subchunks)) in enumerate(
         zip(level_shapes, level_layouts, strict=True)
     ):
+        level_chunks, level_subchunks = _disable_single_subchunk_sharding(
+            level_chunks, level_subchunks
+        )
         level_create_array_kwargs = dict(create_array_kwargs)
         if dimension_separator_threshold is not None:
             level_create_array_kwargs["chunk_key_encoding"] = _chunk_key_encoding(
