@@ -2,6 +2,7 @@
 
 import logging
 import warnings
+from collections.abc import Sequence
 from datetime import datetime
 from enum import Enum
 from math import log2, prod
@@ -11,7 +12,6 @@ from typing import Any, Literal, cast
 import dask.array as da
 import numpy as np
 import zarr
-from dask.base import compute as dask_compute
 from dask.delayed import Delayed, delayed
 from ome_zarr_models.v05.axes import Axis
 from ome_zarr_models.v05.coordinate_transformations import (
@@ -35,6 +35,7 @@ _DEFAULT_SUBCHUNK_ELEMENTS = max(256**2, 32**3)
 type ChunkShape = tuple[int, ...]
 type ChunkSpec = ChunkShape | int | Literal["auto"]
 type DownsampleMethod = Literal["strided", "mean", "mode"]
+type DaskWriteTask = Delayed | da.Array
 
 
 class OMEZarrVersion(Enum):
@@ -213,7 +214,7 @@ def dataset_to_zarr(
             create_array_kwargs=create_array_kwargs,
             mango_attrs=mango_attrs,
             ome_zarr_version=ome_zarr_version,
-            rechunk_before_store=not (input_aligned_chunks or multiscale),
+            rechunk_before_store=not input_aligned_chunks,
             multiscale=multiscale,
             downsample_method=downsample_method,
             dimension_separator_threshold=dimension_separator_threshold,
@@ -756,26 +757,22 @@ def _build_mango_attrs(
     return mango_attrs
 
 
-def _regular_chunk_shape(chunks: tuple[tuple[int, ...], ...]) -> ChunkShape | None:
-    regular_chunks: list[int] = []
+def _can_downsample_shape_by_two(shape: ChunkShape) -> bool:
+    return all(axis_size >= 2 for axis_size in shape)
+
+
+def _chunk_grid_preserves_downsample_alignment(
+    chunks: tuple[tuple[int, ...], ...],
+) -> bool:
+    """Return whether each chunk starts on a global 2x downsampling boundary."""
     for axis_chunks in chunks:
         if not axis_chunks:
-            return None
-        regular_chunk = int(axis_chunks[0])
-        internal_chunks = axis_chunks[:-1] if len(axis_chunks) > 1 else axis_chunks
-        if any(int(chunk) != regular_chunk for chunk in internal_chunks):
-            return None
-        if int(axis_chunks[-1]) > regular_chunk:
-            return None
-        regular_chunks.append(regular_chunk)
-    return tuple(regular_chunks)
-
-
-def _can_downsample_chunks_by_two(chunks: tuple[tuple[int, ...], ...]) -> bool:
-    regular_chunks = _regular_chunk_shape(chunks)
-    if regular_chunks is None:
-        return False
-    return all(int(chunk) >= 2 for axis_chunks in chunks for chunk in axis_chunks)
+            return False
+        if any(int(chunk) <= 0 for chunk in axis_chunks):
+            return False
+        if any(int(chunk) % 2 for chunk in axis_chunks[:-1]):
+            return False
+    return True
 
 
 def _downsampled_chunks(
@@ -786,8 +783,20 @@ def _downsampled_chunks(
     )
 
 
-def _shape_from_chunks(chunks: tuple[tuple[int, ...], ...]) -> ChunkShape:
-    return tuple(sum(axis_chunks) for axis_chunks in chunks)
+def _downsampled_shape(shape: ChunkShape) -> ChunkShape:
+    return tuple((axis_size + 1) // 2 for axis_size in shape)
+
+
+def _safe_downsample_rechunk_shape(
+    shape: ChunkShape,
+    preferred_chunks: ChunkShape,
+) -> ChunkShape:
+    return tuple(
+        axis_size
+        if preferred_chunk >= axis_size
+        else max(2, preferred_chunk - preferred_chunk % 2)
+        for axis_size, preferred_chunk in zip(shape, preferred_chunks, strict=True)
+    )
 
 
 def _array_fits_in_store_unit(
@@ -859,6 +868,22 @@ def _downsample_block_by_two(
     return _cast_mean_downsampled_block(downsampled, np.dtype(block.dtype))
 
 
+def _downsample_array_by_two(
+    data_array: da.Array,
+    method: DownsampleMethod,
+) -> da.Array:
+    return cast(
+        da.Array,
+        da.map_blocks(  # type: ignore[no-untyped-call]
+            _downsample_block_by_two,
+            data_array,
+            method,
+            dtype=data_array.dtype,
+            chunks=_downsampled_chunks(data_array.chunks),
+        ),
+    )
+
+
 def _downsampled_block_shape(block: np.ndarray) -> ChunkShape:
     return tuple((axis_size + 1) // 2 for axis_size in block.shape)
 
@@ -912,51 +937,20 @@ def _downsample_block_mode(block: np.ndarray) -> np.ndarray:
     )
 
 
-def _chunk_starts(chunks: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
-    starts: list[tuple[int, ...]] = []
-    for axis_chunks in chunks:
-        axis_starts: list[int] = []
-        offset = 0
-        for chunk in axis_chunks:
-            axis_starts.append(offset)
-            offset += int(chunk)
-        starts.append(tuple(axis_starts))
-    return tuple(starts)
+def _as_delayed_tasks(task: DaskWriteTask | Sequence[DaskWriteTask]) -> list[Delayed]:
+    if isinstance(task, Delayed):
+        return [task]
+    if isinstance(task, da.Array):
+        blocks = task.to_delayed().ravel()  # type: ignore[no-untyped-call]
+        return [cast(Delayed, block) for block in blocks]
+
+    tasks: list[Delayed] = []
+    for item in task:
+        tasks.extend(_as_delayed_tasks(item))
+    return tasks
 
 
-def _level_block_slices(
-    block_index: tuple[int, ...],
-    level_chunks: tuple[tuple[int, ...], ...],
-    level_starts: tuple[tuple[int, ...], ...],
-) -> tuple[slice, ...]:
-    return tuple(
-        slice(
-            level_starts[axis][chunk_index],
-            level_starts[axis][chunk_index] + level_chunks[axis][chunk_index],
-        )
-        for axis, chunk_index in enumerate(block_index)
-    )
-
-
-def _write_multiscale_chunk(
-    block: np.ndarray,
-    *,
-    zarr_arrays: list[zarr.Array[Any]],
-    block_index: tuple[int, ...],
-    level_chunks: list[tuple[tuple[int, ...], ...]],
-    level_starts: list[tuple[tuple[int, ...], ...]],
-    downsample_method: DownsampleMethod,
-) -> None:
-    level_block = block
-    for level, array in enumerate(zarr_arrays):
-        array[
-            _level_block_slices(block_index, level_chunks[level], level_starts[level])
-        ] = level_block
-        if level < len(zarr_arrays) - 1:
-            level_block = _downsample_block_by_two(level_block, downsample_method)
-
-
-def _combine_delayed(tasks: list[Delayed]) -> Delayed:
+def _combine_delayed(tasks: Sequence[Delayed]) -> Delayed:
     return cast(Delayed, delayed(lambda *results: None)(*tasks))
 
 
@@ -1017,44 +1011,129 @@ def _write_ome_zarr_group(
         rechunk_before_store,
     )
 
+    store_data_array = data_array
+    if rechunk_before_store:
+        logger.debug(
+            "Rechunking input for OME-Zarr write: source_chunks=%s, write_shape=%s",
+            data_array.chunks,
+            level_chunks,
+        )
+        store_data_array = data_array.rechunk(level_chunks)  # type: ignore[no-untyped-call]
+    else:
+        logger.debug(
+            "Skipping input rechunk for OME-Zarr write: source_chunks=%s",
+            data_array.chunks,
+        )
+
+    def resolve_level_layout(
+        level_shape: ChunkShape,
+        level_array: da.Array,
+    ) -> tuple[tuple[ChunkShape, ChunkShape | None], bool]:
+        if rechunk_before_store:
+            return (
+                _resolve_zarr_layout(
+                    shape=level_shape,
+                    chunks=chunks,
+                    subchunks=subchunks,
+                    aligned_chunks=None,
+                ),
+                True,
+            )
+
+        try:
+            return (
+                _resolve_zarr_layout(
+                    shape=level_shape,
+                    chunks=chunks,
+                    subchunks=subchunks,
+                    aligned_chunks=level_array.chunks,
+                ),
+                False,
+            )
+        except ValueError:
+            logger.debug(
+                "Falling back to rechunked storage for OME-Zarr level shape=%s "
+                "because the layout is incompatible with the downsampled chunk grid.",
+                level_shape,
+            )
+            return (
+                _resolve_zarr_layout(
+                    shape=level_shape,
+                    chunks=chunks,
+                    subchunks=subchunks,
+                    aligned_chunks=None,
+                ),
+                True,
+            )
+
+    level_arrays: list[da.Array] = [data_array]
     level_shapes: list[ChunkShape] = [data_array.shape]
-    level_aligned_chunks: list[tuple[tuple[int, ...], ...]] = [data_array.chunks]
     level_layouts: list[tuple[ChunkShape, ChunkShape | None]] = [
         (level_chunks, level_subchunks)
     ]
+    level_store_rechunks = [False]
     level_0_store_unit = level_subchunks or level_chunks
     level_0_store_unit_elements = prod(level_0_store_unit)
     if multiscale:
-        while _can_downsample_chunks_by_two(level_aligned_chunks[-1]):
-            if _array_fits_in_store_unit(level_shapes[-1], level_0_store_unit_elements):
+        current_array = data_array
+        current_layout = (level_chunks, level_subchunks)
+        while True:
+            current_shape = current_array.shape
+            if _array_fits_in_store_unit(current_shape, level_0_store_unit_elements):
                 logger.debug(
                     "Stopping OME-Zarr pyramid at level %s because shape=%s fits "
                     "within one level-0 storage unit=%s.",
                     len(level_shapes) - 1,
-                    level_shapes[-1],
+                    current_shape,
                     level_0_store_unit,
                 )
                 break
-
-            next_aligned_chunks = _downsampled_chunks(level_aligned_chunks[-1])
-            next_shape = _shape_from_chunks(next_aligned_chunks)
-            try:
-                next_chunks, next_subchunks = _resolve_zarr_layout(
-                    shape=next_shape,
-                    chunks=chunks,
-                    subchunks=subchunks,
-                    aligned_chunks=next_aligned_chunks,
-                )
-            except ValueError:
+            if not _can_downsample_shape_by_two(current_shape):
                 logger.debug(
-                    "Stopping OME-Zarr pyramid before level %s because the layout is "
-                    "incompatible with the downsampled chunk grid.",
-                    len(level_shapes),
+                    "Stopping OME-Zarr pyramid at level %s because shape=%s cannot "
+                    "be downsampled by two on every axis.",
+                    len(level_shapes) - 1,
+                    current_shape,
                 )
                 break
+
+            downsample_input = current_array
+            if not _chunk_grid_preserves_downsample_alignment(current_array.chunks):
+                rechunk_shape = _safe_downsample_rechunk_shape(
+                    current_shape,
+                    current_layout[0],
+                )
+                logger.debug(
+                    "Rechunking OME-Zarr level %s before downsampling: "
+                    "source_chunks=%s, rechunk_shape=%s",
+                    len(level_shapes) - 1,
+                    current_array.chunks,
+                    rechunk_shape,
+                )
+                if (
+                    rechunk_before_store
+                    and current_array is data_array
+                    and rechunk_shape == level_chunks
+                ):
+                    downsample_input = store_data_array
+                else:
+                    downsample_input = current_array.rechunk(  # type: ignore[no-untyped-call]
+                        rechunk_shape
+                    )
+
+            next_array = _downsample_array_by_two(downsample_input, downsample_method)
+            next_shape = _downsampled_shape(current_shape)
+            next_layout, next_store_rechunk = resolve_level_layout(
+                next_shape,
+                next_array,
+            )
+
+            level_arrays.append(next_array)
             level_shapes.append(next_shape)
-            level_aligned_chunks.append(next_aligned_chunks)
-            level_layouts.append((next_chunks, next_subchunks))
+            level_layouts.append(next_layout)
+            level_store_rechunks.append(next_store_rechunk)
+            current_array = next_array
+            current_layout = next_layout
 
     ome_datasets: list[OMEDataset] = []
     for level in range(len(level_shapes)):
@@ -1129,61 +1208,44 @@ def _write_ome_zarr_group(
         )
         zarr_arrays.append(array)
 
-    if multiscale:
-        if rechunk_before_store:
-            raise RuntimeError("Multiscale OME-Zarr writes must not rechunk.")
-
-        level_starts = [_chunk_starts(chunks) for chunks in level_aligned_chunks]
-        blocks = data_array.to_delayed()  # type: ignore[no-untyped-call]
-        tasks: list[Delayed] = [
-            cast(
-                Delayed,
-                delayed(_write_multiscale_chunk, pure=False)(
-                    blocks[block_index],
-                    zarr_arrays=zarr_arrays,
-                    block_index=block_index,
-                    level_chunks=level_aligned_chunks,
-                    level_starts=level_starts,
-                    downsample_method=downsample_method,
-                ),
-            )
-            for block_index in np.ndindex(blocks.shape)
-        ]
-        if compute:
-            dask_compute(*tasks)  # type: ignore[no-untyped-call]
-            return None
-        return _combine_delayed(tasks)
-
-    if rechunk_before_store:
-        rechunked_arrays: list[da.Array] = []
-        level_arrays = [data_array]
-        for level_array, zarr_array in zip(level_arrays, zarr_arrays, strict=True):
+    level_arrays_to_store: list[da.Array] = []
+    for level, (level_array, zarr_array, store_rechunk) in enumerate(
+        zip(level_arrays, zarr_arrays, level_store_rechunks, strict=True)
+    ):
+        if level == 0:
+            level_arrays_to_store.append(store_data_array)
+            continue
+        if store_rechunk:
             write_shape = zarr_array.shards or zarr_array.chunks
             logger.debug(
-                "Rechunking input for OME-Zarr write: source_chunks=%s, write_shape=%s",
+                "Rechunking OME-Zarr level %s for storage: source_chunks=%s, "
+                "write_shape=%s",
+                level,
                 level_array.chunks,
                 write_shape,
             )
-            rechunked_arrays.append(level_array.rechunk(write_shape))  # type: ignore[no-untyped-call]
-        level_arrays = rechunked_arrays
-    else:
-        level_arrays = [data_array]
-        logger.debug(
-            "Skipping input rechunk for OME-Zarr write: source_chunks=%s",
-            [level_array.chunks for level_array in level_arrays],
-        )
+            level_arrays_to_store.append(
+                level_array.rechunk(write_shape)  # type: ignore[no-untyped-call]
+            )
+        else:
+            level_arrays_to_store.append(level_array)
 
     # dask's to_zarr internally calls normalize_chunks("auto", ...) which can produce
     # chunk sizes that are not multiples of the shard shape, causing misaligned writes
     # that manifest as large regions of zeros in the output. Using da.store directly
     # bypasses that internal rechunk entirely, writing each dask chunk straight into
     # its corresponding region in the zarr array.
-    result = da.store(level_arrays, zarr_arrays, lock=False, compute=compute)  # type: ignore[arg-type]
+    result = da.store(
+        level_arrays_to_store,
+        zarr_arrays,  # type: ignore[arg-type]
+        lock=False,
+        compute=compute,
+    )
     if compute:
         return None
     if isinstance(result, Delayed):
         return result
-    return _combine_delayed(list(result))
+    return _combine_delayed(_as_delayed_tasks(result))
 
 
 def _write_zarr_array(
