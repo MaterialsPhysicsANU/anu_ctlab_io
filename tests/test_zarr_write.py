@@ -427,6 +427,57 @@ def test_multiscale_compute_false_returns_one_delayed(_make_dataset, tmp_path):
     assert sorted(zarr.open_group(output_path, mode="r").array_keys()) == ["0", "1"]
 
 
+def test_multiscale_prefix_graph_uses_one_write_task_per_source_chunk(
+    _make_dataset, tmp_path
+):
+    """Aligned prefix levels are written by one task per source chunk."""
+    dataset, data = _make_dataset((8, 8, 8), chunks=(4, 4, 4))
+    output_path = tmp_path / "prefix_graph.zarr"
+
+    result = anu_ctlab_io.zarr.dataset_to_zarr(
+        dataset,
+        output_path,
+        chunks="auto",
+        shards=None,
+        input_aligned_chunks=True,
+        compute=False,
+    )
+
+    assert result is not None
+    prefix_tasks = [
+        key for key in result.dask if "_write_multiscale_prefix_block" in str(key)
+    ]
+    assert len(prefix_tasks) == data.npartitions
+
+
+def test_multiscale_continuation_avoids_dask_zarr_io(_make_dataset, tmp_path):
+    """Fallback levels read and write via zarr tasks, not da.store/from_zarr."""
+    from unittest.mock import patch
+
+    import zarr
+
+    data = np.arange(10**3, dtype=np.uint16).reshape((10, 10, 10))
+    dataset, _ = _make_dataset(data.shape, chunks=(5, 5, 5), data=data)
+    output_path = tmp_path / "direct_continuation.zarr"
+
+    with (
+        patch.object(da, "store", side_effect=AssertionError),
+        patch.object(da, "from_zarr", side_effect=AssertionError),
+    ):
+        anu_ctlab_io.zarr.dataset_to_zarr(
+            dataset,
+            output_path,
+            chunks="auto",
+            shards=None,
+            input_aligned_chunks=True,
+        )
+
+    assert np.array_equal(
+        zarr.open_array(output_path / "1", mode="r")[:],
+        data[::2, ::2, ::2],
+    )
+
+
 def test_multiscale_input_aligned_subchunks_use_divisor_scoring(tmp_path):
     """Downsampled sharded levels choose useful divisors and skip one-subchunk shards."""
     import zarr
