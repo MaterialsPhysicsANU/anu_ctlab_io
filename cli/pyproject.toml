@@ -22,6 +22,7 @@ dependencies = [
     "anu-ctlab-io[all]~=1.2.2",
     "typer>=0.24.1",
     "dask[distributed]>=2025.2.0",
+    "bokeh>=3.8,<=3.9", # <=3.9 due to dask incompatibility in saving performance reports
     "graphviz>=0.21",
 ]
 
