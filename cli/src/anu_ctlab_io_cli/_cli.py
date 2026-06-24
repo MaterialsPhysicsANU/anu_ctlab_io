@@ -144,6 +144,13 @@ def cli(
             help="Disable multiscale pyramid output for Zarr writes.",
         ),
     ] = False,
+    performance_report: Annotated[
+        Path | None,
+        typer.Option(
+            "--performance-report",
+            help="Write a Dask performance report HTML file to this path (only with distributed schedulers).",
+        ),
+    ] = None,
     log_level: Annotated[
         str,
         typer.Option(
@@ -193,22 +200,32 @@ def cli(
                 if cluster is not None:
                     client_or_address = cluster
                 with Client(client_or_address) as client:
-                    result = _convert(
-                        input,
-                        output,
-                        input_format,
-                        output_format,
-                        datatype,
-                        _parse_voxel_size(voxel_size) if voxel_size else None,
-                        voxel_unit,
-                        no_multiscale=no_multiscale,
-                    )
-                    if result is not None:
-                        if dask_graph is not None:
-                            _visualize_dask_graph(result, dask_graph)
-                        future = client.compute(result)
-                        progress(future)
-                        wait(future)
+                    from dask.distributed import performance_report
+
+                    if performance_report is not None:
+                        performance_ctx = performance_report(
+                            filename=str(performance_report)
+                        )
+                    else:
+                        performance_ctx = nullcontext(None)
+
+                    with performance_ctx:
+                        result = _convert(
+                            input,
+                            output,
+                            input_format,
+                            output_format,
+                            datatype,
+                            _parse_voxel_size(voxel_size) if voxel_size else None,
+                            voxel_unit,
+                            no_multiscale=no_multiscale,
+                        )
+                        if result is not None:
+                            if dask_graph is not None:
+                                _visualize_dask_graph(result, dask_graph)
+                            future = client.compute(result)
+                            progress(future)
+                            wait(future)
             if scheduler == Scheduler.distributed_mpi:
                 os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
         case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
