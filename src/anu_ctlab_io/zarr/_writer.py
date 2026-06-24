@@ -936,8 +936,16 @@ def _downsample_block_mode(block: np.ndarray) -> np.ndarray:
     )
 
 
-def _combine_delayed(tasks: Sequence[Delayed]) -> Delayed:
-    return cast(Delayed, delayed(lambda *results: None)(*tasks))
+def _complete_delayed_writes(*_results: Any) -> None:
+    """Barrier task used to make write dependencies explicit in Dask graphs."""
+    return None
+
+
+def _combine_delayed(tasks: Sequence[Delayed], *, dask_key_name: str) -> Delayed:
+    return cast(
+        Delayed,
+        delayed(_complete_delayed_writes)(*tasks, dask_key_name=dask_key_name),
+    )
 
 
 def _chunk_offsets(chunks: tuple[tuple[int, ...], ...]) -> tuple[tuple[int, ...], ...]:
@@ -1104,7 +1112,10 @@ def _build_direct_ome_zarr_write(
             )
         )
 
-    barrier = _combine_delayed(prefix_tasks)
+    barrier = _combine_delayed(
+        prefix_tasks,
+        dask_key_name="complete-ome-zarr-prefix-writes",
+    )
     for level in range(prefix_level_count, len(level_shapes)):
         destination_path = zarr_path / str(level)
         source_path = zarr_path / str(level - 1)
@@ -1135,7 +1146,10 @@ def _build_direct_ome_zarr_write(
                     ),
                 )
             )
-        barrier = _combine_delayed(level_tasks)
+        barrier = _combine_delayed(
+            level_tasks,
+            dask_key_name=f"complete-ome-zarr-level-{level}-writes",
+        )
 
     return barrier
 
