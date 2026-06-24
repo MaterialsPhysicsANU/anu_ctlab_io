@@ -1024,17 +1024,16 @@ def _upsampled_source_region(
 
 def _write_multiscale_prefix_block(
     block: np.ndarray,
-    array_paths: Sequence[Path],
+    arrays: Sequence[zarr.Array[Any]],
     region: tuple[slice, ...],
     method: DownsampleMethod,
 ) -> None:
     """Write one source block to level 0 and aligned in-memory pyramid levels."""
     current_block = block
     current_region = region
-    for level, array_path in enumerate(array_paths):
-        array = zarr.open_array(array_path, mode="r+")
+    for level, array in enumerate(arrays):
         array[current_region] = current_block
-        if level < len(array_paths) - 1:
+        if level < len(arrays) - 1:
             current_block = _downsample_block_by_two(current_block, method)
             current_region = _downsample_region_by_two(current_region)
 
@@ -1083,6 +1082,7 @@ def _direct_multiscale_prefix_level_count(
 def _build_direct_ome_zarr_write(
     data_array: da.Array,
     zarr_path: Path,
+    zarr_arrays: Sequence[zarr.Array[Any]],
     level_shapes: Sequence[ChunkShape],
     level_layouts: Sequence[tuple[ChunkShape, ChunkShape | None]],
     downsample_method: DownsampleMethod,
@@ -1096,7 +1096,7 @@ def _build_direct_ome_zarr_write(
 
     block_offsets = _chunk_offsets(data_array.chunks)
     delayed_blocks = data_array.to_delayed()  # type: ignore[no-untyped-call]
-    prefix_paths = [zarr_path / str(level) for level in range(prefix_level_count)]
+    prefix_arrays = zarr_arrays[:prefix_level_count]
     prefix_tasks: list[Delayed] = []
     for index in np.ndindex(delayed_blocks.shape):
         region = _chunk_region(data_array.chunks, block_offsets, index)
@@ -1105,7 +1105,7 @@ def _build_direct_ome_zarr_write(
                 Delayed,
                 delayed(_write_multiscale_prefix_block)(
                     delayed_blocks[index],
-                    prefix_paths,
+                    prefix_arrays,
                     region,
                     downsample_method,
                 ),
@@ -1392,6 +1392,7 @@ def _write_ome_zarr_group(
     if mango_attrs:
         root.attrs["mango"] = mango_attrs
 
+    zarr_arrays: list[zarr.Array[Any]] = []
     for level, (level_shape, (level_chunks, level_subchunks)) in enumerate(
         zip(level_shapes, level_layouts, strict=True)
     ):
@@ -1414,6 +1415,7 @@ def _write_ome_zarr_group(
             overwrite=True,
             **level_create_array_kwargs,
         )
+        zarr_arrays.append(array)
         logger.debug(
             "Created OME-Zarr array: path=%s/%s, shape=%s, dtype=%s, chunks=%s, "
             "shards=%s, dimension_names=%s",
@@ -1429,6 +1431,7 @@ def _write_ome_zarr_group(
     result = _build_direct_ome_zarr_write(
         store_data_array,
         path,
+        zarr_arrays,
         level_shapes,
         level_layouts,
         downsample_method,
