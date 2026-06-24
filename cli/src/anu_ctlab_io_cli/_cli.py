@@ -200,10 +200,12 @@ def cli(
                 if cluster is not None:
                     client_or_address = cluster
                 with Client(client_or_address) as client:
-                    from dask.distributed import performance_report
+                    from dask.distributed import (
+                        performance_report as _performance_report,
+                    )
 
                     if performance_report is not None:
-                        performance_ctx = performance_report(
+                        performance_ctx = _performance_report(
                             filename=str(performance_report)
                         )
                     else:
