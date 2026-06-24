@@ -74,7 +74,7 @@ def _validate_workers(workers: int) -> int:
 
 
 def _visualize_dask_graph(result: Delayed, filename: Path) -> None:
-    result.visualize(filename=str(filename))
+    result.visualize(filename=str(filename), optimize_graph=True, collapse_outputs=True)
     logger.info("Dask graph written to: %s", filename)
 
 
