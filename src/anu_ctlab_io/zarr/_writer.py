@@ -1028,6 +1028,7 @@ def _write_ome_zarr_group(
     def resolve_level_layout(
         level_shape: ChunkShape,
         level_array: da.Array,
+        preferred_chunks: ChunkShape | None = None,
     ) -> tuple[tuple[ChunkShape, ChunkShape | None], bool]:
         if rechunk_before_store:
             return (
@@ -1039,6 +1040,25 @@ def _write_ome_zarr_group(
                 ),
                 True,
             )
+
+        if chunks == "auto" and subchunks is not None and preferred_chunks is not None:
+            try:
+                return (
+                    _resolve_zarr_layout(
+                        shape=level_shape,
+                        chunks=preferred_chunks,
+                        subchunks=subchunks,
+                        aligned_chunks=level_array.chunks,
+                    ),
+                    False,
+                )
+            except ValueError:
+                logger.debug(
+                    "Ignoring preferred OME-Zarr level layout=%s for shape=%s "
+                    "because it is incompatible with the downsampled chunk grid.",
+                    preferred_chunks,
+                    level_shape,
+                )
 
         try:
             return (
@@ -1123,9 +1143,11 @@ def _write_ome_zarr_group(
 
             next_array = _downsample_array_by_two(downsample_input, downsample_method)
             next_shape = _downsampled_shape(current_shape)
+            preferred_next_chunks = _downsampled_shape(current_layout[0])
             next_layout, next_store_rechunk = resolve_level_layout(
                 next_shape,
                 next_array,
+                preferred_next_chunks,
             )
 
             level_arrays.append(next_array)
