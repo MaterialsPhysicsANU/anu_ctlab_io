@@ -156,7 +156,6 @@ def _downsample_block_mode(block: np.ndarray) -> np.ndarray:
     counts = np.zeros_like(values, dtype=np.uint8)
     for index in range(values.shape[0]):
         counts[index] = np.sum((values == sorted_values[index]) & valid, axis=0)
-    counts = np.take_along_axis(counts, order, axis=0)
     counts[~sorted_valid] = 0
 
     best_count = np.max(counts, axis=0, keepdims=True)

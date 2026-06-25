@@ -404,6 +404,15 @@ def test_mean_and_mode_downsample_methods(
     )
 
 
+def test_mode_downsample_selects_non_tied_majority_after_sorting():
+    """Mode counts stay aligned with sorted values."""
+    block = np.array([0, 0, 0, 2, 1, 2, 2, 2], dtype=np.uint8).reshape(2, 2, 2)
+
+    assert _multiscale._downsample_block_mode(block) == np.array(
+        [[[2]]], dtype=np.uint8
+    )
+
+
 def test_multiscale_compute_false_returns_one_delayed(_make_dataset, tmp_path):
     """compute=False returns a single delayed object that writes every level."""
     import zarr
