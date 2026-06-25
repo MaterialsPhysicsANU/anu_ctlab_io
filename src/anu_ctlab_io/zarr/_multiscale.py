@@ -84,35 +84,6 @@ def _cast_mean_downsampled_block(block: np.ndarray, dtype: np.dtype[Any]) -> np.
     return block.astype(dtype)
 
 
-def _mode_smallest_tie(
-    block: np.ndarray, axis: int | tuple[int, ...] | None = None
-) -> np.ndarray:
-    axes = (
-        tuple(range(block.ndim))
-        if axis is None
-        else ((axis,) if isinstance(axis, int) else tuple(axis))
-    )
-    if not axes:
-        return block
-
-    positive_axes = tuple(ax if ax >= 0 else block.ndim + ax for ax in axes)
-    remaining_axes = tuple(ax for ax in range(block.ndim) if ax not in positive_axes)
-    moved = np.moveaxis(block, remaining_axes + positive_axes, range(block.ndim))
-    remaining_shape = moved.shape[: len(remaining_axes)]
-    reduction_size = prod(moved.shape[len(remaining_axes) :])
-    flattened = moved.reshape(*remaining_shape, reduction_size)
-
-    if not remaining_shape:
-        values, counts = np.unique(flattened, return_counts=True)
-        return np.asarray(values[counts == counts.max()].min(), dtype=block.dtype)
-
-    result = np.empty(remaining_shape, dtype=block.dtype)
-    for index in np.ndindex(remaining_shape):
-        values, counts = np.unique(flattened[index], return_counts=True)
-        result[index] = values[counts == counts.max()].min()
-    return result
-
-
 def _downsample_block_by_two(
     block: np.ndarray,
     method: DownsampleMethod,
