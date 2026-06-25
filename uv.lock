@@ -78,6 +78,7 @@ zarr = [
 [package.dev-dependencies]
 bench = [
     { name = "anu-ctlab-io", extra = ["netcdf", "zarr"] },
+    { name = "distributed" },
     { name = "pytest-benchmark" },
 ]
 dev = [
@@ -112,6 +113,7 @@ provides-extras = ["netcdf", "zarr", "all"]
 [package.metadata.requires-dev]
 bench = [
     { name = "anu-ctlab-io", extras = ["zarr", "netcdf"] },
+    { name = "distributed", specifier = ">=2026.1.2" },
     { name = "pytest-benchmark", specifier = ">=5.2.3" },
 ]
 dev = [
