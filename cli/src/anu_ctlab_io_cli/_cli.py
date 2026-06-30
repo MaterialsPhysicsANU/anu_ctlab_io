@@ -319,7 +319,6 @@ def _convert(
     if converting_netcdf_to_zarr:
         read_kwargs["ignore_block_chunks"] = True
         read_kwargs["lock"] = False
-        read_kwargs["driver_kwds"] = {"locking": False}
 
     dataset = Dataset.from_path(input, filetype=input_format.value, **read_kwargs)
 
