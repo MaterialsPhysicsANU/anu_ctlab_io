@@ -318,7 +318,6 @@ def _convert(
     read_kwargs: dict[str, Any] = {}
     if converting_netcdf_to_zarr:
         read_kwargs["ignore_block_chunks"] = True
-        read_kwargs["lock"] = False
 
     dataset = Dataset.from_path(input, filetype=input_format.value, **read_kwargs)
 
