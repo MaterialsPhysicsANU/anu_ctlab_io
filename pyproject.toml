@@ -9,7 +9,7 @@ description = "python I/O for the ANU CTLab array storage format(s)"
 readme = "README.rst"
 requires-python = ">=3.12"
 dependencies = [
-    "dask[array]>=2025.2.0",
+    "dask[array]>=2026.6.0",
     "xarray>=2025.1.2",
     "numpy>=2.2.3",
     "lark>=1.2.2",

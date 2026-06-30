@@ -74,7 +74,7 @@ def _validate_workers(workers: int) -> int:
 
 
 def _visualize_dask_graph(result: Delayed, filename: Path) -> None:
-    result.visualize(filename=str(filename))
+    result.visualize(filename=str(filename), optimize_graph=True, collapse_outputs=True)
     logger.info("Dask graph written to: %s", filename)
 
 
@@ -137,6 +137,20 @@ def cli(
             help="Override voxel unit (e.g., nm, um, mm, angstrom).",
         ),
     ] = None,
+    no_multiscale: Annotated[
+        bool,
+        typer.Option(
+            "--no-multiscale",
+            help="Disable multiscale pyramid output for Zarr writes.",
+        ),
+    ] = False,
+    performance_report: Annotated[
+        Path | None,
+        typer.Option(
+            "--performance-report",
+            help="Write a Dask performance report HTML file to this path (only with distributed schedulers).",
+        ),
+    ] = None,
     log_level: Annotated[
         str,
         typer.Option(
@@ -186,21 +200,34 @@ def cli(
                 if cluster is not None:
                     client_or_address = cluster
                 with Client(client_or_address) as client:
-                    result = _convert(
-                        input,
-                        output,
-                        input_format,
-                        output_format,
-                        datatype,
-                        _parse_voxel_size(voxel_size) if voxel_size else None,
-                        voxel_unit,
+                    from dask.distributed import (
+                        performance_report as _performance_report,
                     )
-                    if result is not None:
-                        if dask_graph is not None:
-                            _visualize_dask_graph(result, dask_graph)
-                        future = client.compute(result)
-                        progress(future)
-                        wait(future)
+
+                    if performance_report is not None:
+                        performance_ctx = _performance_report(
+                            filename=str(performance_report)
+                        )
+                    else:
+                        performance_ctx = nullcontext(None)
+
+                    with performance_ctx:
+                        result = _convert(
+                            input,
+                            output,
+                            input_format,
+                            output_format,
+                            datatype,
+                            _parse_voxel_size(voxel_size) if voxel_size else None,
+                            voxel_unit,
+                            no_multiscale=no_multiscale,
+                        )
+                        if result is not None:
+                            if dask_graph is not None:
+                                _visualize_dask_graph(result, dask_graph)
+                            future = client.compute(result)
+                            progress(future)
+                            wait(future)
             if scheduler == Scheduler.distributed_mpi:
                 os._exit(0)  # bypass atexit handlers to avoid dask-mpi hang on exit
         case Scheduler.synchronous | Scheduler.threads | Scheduler.processes:
@@ -225,6 +252,7 @@ def cli(
                     datatype,
                     parsed_voxel_size,
                     voxel_unit,
+                    no_multiscale=no_multiscale,
                 )
                 if result is not None:
                     if dask_graph is not None:
@@ -280,6 +308,7 @@ def _convert(
     datatype: str | None = None,
     voxel_size: tuple[float, float, float] | None = None,
     voxel_unit: VoxelUnit | None = None,
+    no_multiscale: bool = False,
 ) -> Delayed | None:
     from anu_ctlab_io import Dataset
 
@@ -304,6 +333,8 @@ def _convert(
     kwargs: dict[str, Any] = {"filetype": output_format.value, "compute": False}
     if converting_netcdf_to_zarr:
         kwargs["input_aligned_chunks"] = True
+    if _output_is_zarr(output, output_format) and no_multiscale:
+        kwargs["multiscale"] = False
     if datatype is not None:
         kwargs["datatype"] = datatype
     try:
